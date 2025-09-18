@@ -1,0 +1,32 @@
+# <type>: <subject>
+#
+# <body>
+#
+# <footer>
+
+# Type should be one of the following:
+# * feat: A new feature
+# * fix: A bug fix
+# * docs: Documentation only changes
+# * style: Changes that do not affect the meaning of the code
+# * refactor: A code change that neither fixes a bug nor adds a feature
+# * perf: A code change that improves performance
+# * test: Adding missing tests or correcting existing tests
+# * build: Changes that affect the build system or external dependencies
+# * ci: Changes to our CI configuration files and scripts
+# * chore: Other changes that don't modify src or test files
+# * revert: Reverts a previous commit
+
+# Subject line should be capitalized and <= 50 characters
+# Body should be wrapped at 72 characters
+# Footer should contain any issue references or breaking changes
+
+# Example:
+# feat: add security dashboard with vulnerability scanning
+#
+# - Implement real-time vulnerability detection
+# - Add compliance checking for CIS benchmarks
+# - Include CVE database integration
+#
+# Closes #123
+# BREAKING CHANGE: API endpoint changed from /api/v1 to /api/v2
