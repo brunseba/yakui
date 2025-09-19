@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { AuthState } from '../types';
-import { kubernetesService } from '../services/kubernetes';
+import type { AuthState } from '../types/dev';
+import { kubernetesService } from '../services/kubernetes-api';
 
 interface AuthContextType {
   state: AuthState;
@@ -95,12 +95,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         await login(config, token);
       } catch (error) {
-        console.error('Failed to restore authentication:', error);
+        console.warn('Failed to restore authentication (this is normal in development):', error);
         localStorage.removeItem('k8s-auth');
+        // Don't throw error, just clear stored auth and continue to login screen
       }
     };
 
-    restoreAuth();
+    // Only try to restore auth if we're not in development mode or have a valid kubeconfig
+    if (import.meta.env.PROD || localStorage.getItem('k8s-auth')) {
+      restoreAuth();
+    }
   }, []);
 
   const value: AuthContextType = {

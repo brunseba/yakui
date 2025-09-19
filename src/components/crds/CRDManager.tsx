@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -23,7 +24,9 @@ import {
   ListItemText,
   ListItemIcon,
   IconButton,
-  Tooltip
+  Tooltip,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -32,73 +35,90 @@ import {
   Visibility as VisibilityIcon,
   Storage as StorageIcon,
   Public as PublicIcon,
-  Language as LanguageIcon
+  Language as LanguageIcon,
+  Apps as AppsIcon,
+  Security as SecurityIcon,
+  Router as NetworkIcon,
+  Computer as CoreIcon
 } from '@mui/icons-material';
-import { kubernetesService } from '../../services/kubernetes';
-import { CRDWithInstances } from '../../types';
+import { kubernetesService } from '../../services/kubernetes-api';
+import { CRDWithInstances } from '../../types/dev';
+
+interface KubernetesResource {
+  group: string;
+  version: string;
+  kind: string;
+  plural: string;
+  namespaced: boolean;
+  description: string;
+  isCustom: boolean;
+  crdName?: string;
+}
 
 const CRDManager: React.FC = () => {
-  const [crds, setCrds] = useState<CRDWithInstances[]>([]);
+  const navigate = useNavigate();
+  const [resources, setResources] = useState<KubernetesResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCRD, setSelectedCRD] = useState<CRDWithInstances | null>(null);
+  const [tabValue, setTabValue] = useState(0);
 
   useEffect(() => {
-    fetchCRDs();
+    fetchResources();
   }, []);
 
-  const fetchCRDs = async () => {
+  const fetchResources = async () => {
     try {
       setLoading(true);
-      const crdsData = await kubernetesService.getCRDs();
-      setCrds(crdsData);
+      const resourcesData = await kubernetesService.getKubernetesResources();
+      setResources(resourcesData);
     } catch (err) {
-      console.error('Failed to fetch CRDs:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load CRDs');
+      console.error('Failed to fetch resources:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load resources');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatAge = (creationTimestamp?: string) => {
-    if (!creationTimestamp) return 'Unknown';
-    
-    const created = new Date(creationTimestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - created.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    
-    if (diffDays > 0) {
-      return `${diffDays}d${diffHours}h`;
-    } else {
-      return `${diffHours}h`;
-    }
+  const getScopeColor = (namespaced: boolean) => {
+    return namespaced ? 'secondary' : 'primary';
   };
 
-  const getScopeColor = (scope: string) => {
-    return scope === 'Cluster' ? 'primary' : 'secondary';
+  const getGroupIcon = (group: string) => {
+    if (group === 'core') return <CoreIcon />;
+    if (group.includes('apps')) return <AppsIcon />;
+    if (group.includes('rbac') || group.includes('security')) return <SecurityIcon />;
+    if (group.includes('networking')) return <NetworkIcon />;
+    if (group.includes('extension') || group.includes('custom')) return <ExtensionIcon />;
+    if (group.includes('storage')) return <StorageIcon />;
+    return <SchemaIcon />;
   };
 
-  const groupCRDsByGroup = (crds: CRDWithInstances[]) => {
-    const groups: Record<string, CRDWithInstances[]> = {};
+  const groupResourcesByGroup = (resources: KubernetesResource[]) => {
+    const groups: Record<string, KubernetesResource[]> = {};
     
-    crds.forEach(crd => {
-      const group = crd.spec?.group || 'core';
+    resources.forEach(resource => {
+      const group = resource.group || 'core';
       if (!groups[group]) {
         groups[group] = [];
       }
-      groups[group].push(crd);
+      groups[group].push(resource);
     });
 
     return groups;
+  };
+
+  const filterResources = (resources: KubernetesResource[]) => {
+    if (tabValue === 0) return resources; // All resources
+    if (tabValue === 1) return resources.filter(r => !r.isCustom); // Core resources
+    if (tabValue === 2) return resources.filter(r => r.isCustom); // Custom resources
+    return resources;
   };
 
   if (loading) {
     return (
       <Box>
         <Typography variant="h4" gutterBottom>
-          Custom Resource Definitions
+          Kubernetes Resources
         </Typography>
         <LinearProgress sx={{ mt: 2 }} />
       </Box>
@@ -109,7 +129,7 @@ const CRDManager: React.FC = () => {
     return (
       <Box>
         <Typography variant="h4" gutterBottom>
-          Custom Resource Definitions
+          Kubernetes Resources
         </Typography>
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
@@ -118,29 +138,41 @@ const CRDManager: React.FC = () => {
     );
   }
 
-  const crdGroups = groupCRDsByGroup(crds);
+  const filteredResources = filterResources(resources);
+  const resourceGroups = groupResourcesByGroup(filteredResources);
+  const coreResources = resources.filter(r => !r.isCustom);
+  const customResources = resources.filter(r => r.isCustom);
 
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
-        Custom Resource Definitions
+        Kubernetes Resources
       </Typography>
+
+      {/* Tabs for filtering */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+          <Tab label={`All Resources (${resources.length})`} />
+          <Tab label={`Core Resources (${coreResources.length})`} />
+          <Tab label={`Custom Resources (${customResources.length})`} />
+        </Tabs>
+      </Box>
 
       <Grid container spacing={3} mb={3}>
         <Grid item xs={12} sm={6} md={3}>
           <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="primary">
-              {crds.length}
+              {filteredResources.length}
             </Typography>
             <Typography variant="body2" color="textSecondary">
-              Total CRDs
+              {tabValue === 0 ? 'Total Resources' : tabValue === 1 ? 'Core Resources' : 'Custom Resources'}
             </Typography>
           </Paper>
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="success.main">
-              {crds.filter(crd => crd.scope === 'Cluster').length}
+              {filteredResources.filter(resource => !resource.namespaced).length}
             </Typography>
             <Typography variant="body2" color="textSecondary">
               Cluster Scoped
@@ -150,7 +182,7 @@ const CRDManager: React.FC = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="secondary.main">
-              {crds.filter(crd => crd.scope === 'Namespaced').length}
+              {filteredResources.filter(resource => resource.namespaced).length}
             </Typography>
             <Typography variant="body2" color="textSecondary">
               Namespaced
@@ -160,7 +192,7 @@ const CRDManager: React.FC = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="info.main">
-              {Object.keys(crdGroups).length}
+              {Object.keys(resourceGroups).length}
             </Typography>
             <Typography variant="body2" color="textSecondary">
               API Groups
@@ -172,20 +204,27 @@ const CRDManager: React.FC = () => {
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            CRDs by API Group
+            Resources by API Group
           </Typography>
 
-          {Object.entries(crdGroups).map(([group, groupCrds]) => (
+          {Object.entries(resourceGroups).map(([group, groupResources]) => (
             <Accordion key={group} sx={{ mb: 1 }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Box display="flex" alignItems="center" width="100%">
-                  <ExtensionIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6" sx={{ flexGrow: 1 }}>
-                    {group}
-                  </Typography>
+                  {getGroupIcon(group)}
+                  <Box sx={{ ml: 1, flexGrow: 1 }}>
+                    <Typography variant="h6">
+                      {group}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      {group === 'core' ? 'Core Kubernetes API' : 
+                       groupResources.some(r => r.isCustom) ? 'Custom Resources' : 'Extended API'}
+                    </Typography>
+                  </Box>
                   <Chip 
-                    label={`${groupCrds.length} resources`} 
+                    label={`${groupResources.length} resources`} 
                     size="small" 
+                    color={group === 'core' ? 'primary' : groupResources.some(r => r.isCustom) ? 'secondary' : 'default'}
                     sx={{ mr: 2 }}
                   />
                 </Box>
@@ -195,73 +234,78 @@ const CRDManager: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Name</TableCell>
+                        <TableCell>Resource</TableCell>
                         <TableCell>Kind</TableCell>
+                        <TableCell>Version</TableCell>
                         <TableCell>Scope</TableCell>
-                        <TableCell>Versions</TableCell>
-                        <TableCell>Instances</TableCell>
-                        <TableCell>Age</TableCell>
+                        <TableCell>Type</TableCell>
                         <TableCell>Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {groupCrds.map((crd) => (
-                        <TableRow key={crd.metadata?.name} hover>
+                      {groupResources.map((resource) => (
+                        <TableRow key={`${resource.group}-${resource.kind}`} hover>
                           <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                              {crd.spec?.names?.plural}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              {crd.metadata?.name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {crd.spec?.names?.kind}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={crd.scope}
-                              size="small"
-                              color={getScopeColor(crd.scope) as any}
-                              icon={crd.scope === 'Cluster' ? <PublicIcon /> : <LanguageIcon />}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Box display="flex" gap={0.5} flexWrap="wrap">
-                              {crd.spec?.versions?.map((version) => (
-                                <Chip
-                                  key={version.name}
-                                  label={version.name}
-                                  size="small"
-                                  variant={version.served ? 'filled' : 'outlined'}
-                                  color={version.storage ? 'primary' : 'default'}
-                                />
-                              ))}
+                            <Box>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ fontWeight: 'medium' }}
+                              >
+                                {resource.plural}
+                              </Typography>
+                              <Typography 
+                                variant="caption" 
+                                color="textSecondary"
+                              >
+                                {resource.description}
+                              </Typography>
                             </Box>
                           </TableCell>
                           <TableCell>
-                            <Chip
-                              label={crd.instances || 0}
-                              size="small"
-                              color={crd.instances && crd.instances > 0 ? 'success' : 'default'}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {formatAge(crd.metadata?.creationTimestamp)}
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {resource.kind}
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Tooltip title="View Details">
-                              <IconButton
-                                size="small"
-                                onClick={() => setSelectedCRD(crd)}
-                              >
-                                <VisibilityIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                            <Chip
+                              label={resource.version}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={resource.namespaced ? 'Namespaced' : 'Cluster'}
+                              size="small"
+                              color={getScopeColor(resource.namespaced) as any}
+                              icon={resource.namespaced ? <LanguageIcon /> : <PublicIcon />}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={resource.isCustom ? 'Custom' : 'Core'}
+                              size="small"
+                              color={resource.isCustom ? 'secondary' : 'primary'}
+                              variant={resource.isCustom ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {resource.isCustom && resource.crdName ? (
+                              <Tooltip title="View CRD Details">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => navigate(`/crds/${encodeURIComponent(resource.crdName || '')}`)}
+                                >
+                                  <VisibilityIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip title="Core Kubernetes resource">
+                                <IconButton size="small" disabled>
+                                  <SchemaIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -274,108 +318,6 @@ const CRDManager: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* CRD Details Panel */}
-      {selectedCRD && (
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              CRD Details: {selectedCRD.spec?.names?.kind}
-            </Typography>
-            
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Basic Information
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemIcon>
-                      <ExtensionIcon fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Name"
-                      secondary={selectedCRD.metadata?.name}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemIcon>
-                      <SchemaIcon fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Kind"
-                      secondary={selectedCRD.spec?.names?.kind}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemIcon>
-                      <StorageIcon fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Plural"
-                      secondary={selectedCRD.spec?.names?.plural}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemIcon>
-                      <PublicIcon fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary="Scope"
-                      secondary={selectedCRD.scope}
-                    />
-                  </ListItem>
-                </List>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Versions
-                </Typography>
-                <List dense>
-                  {selectedCRD.spec?.versions?.map((version) => (
-                    <ListItem key={version.name}>
-                      <ListItemText
-                        primary={version.name}
-                        secondary={
-                          <Box display="flex" gap={1}>
-                            <Chip
-                              label={version.served ? 'Served' : 'Not Served'}
-                              size="small"
-                              color={version.served ? 'success' : 'error'}
-                            />
-                            {version.storage && (
-                              <Chip
-                                label="Storage"
-                                size="small"
-                                color="primary"
-                              />
-                            )}
-                          </Box>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              </Grid>
-            </Grid>
-
-            {selectedCRD.spec?.names && (
-              <Box mt={3}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Name Variations
-                </Typography>
-                <Box display="flex" gap={1} flexWrap="wrap">
-                  <Chip label={`Singular: ${selectedCRD.spec.names.singular}`} variant="outlined" />
-                  <Chip label={`Plural: ${selectedCRD.spec.names.plural}`} variant="outlined" />
-                  {selectedCRD.spec.names.shortNames?.map((shortName) => (
-                    <Chip key={shortName} label={`Short: ${shortName}`} variant="outlined" />
-                  ))}
-                </Box>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      )}
     </Box>
   );
 };

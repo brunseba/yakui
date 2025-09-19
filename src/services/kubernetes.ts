@@ -1,5 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
-import { AuthState, ClusterNode, NamespaceWithMetrics, CRDWithInstances, ClusterEvent, ResourceMetrics } from '../types';
+import { AuthState, ClusterNode, NamespaceWithMetrics, CRDWithInstances, ClusterEvent, ResourceMetrics } from '../types/dev';
 
 class KubernetesService {
   private kc: k8s.KubeConfig;
@@ -31,8 +31,14 @@ class KubernetesService {
 
       return true;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('ENOENT') || errorMessage.includes('no such file')) {
+        throw new Error('Kubeconfig file not found. Please provide a valid kubeconfig file or ensure kubectl is configured.');
+      } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connect ECONNREFUSED')) {
+        throw new Error('Cannot connect to Kubernetes cluster. Please ensure the cluster is running and accessible.');
+      }
       console.error('Failed to initialize Kubernetes client:', error);
-      throw error;
+      throw new Error(`Failed to initialize Kubernetes client: ${errorMessage}`);
     }
   }
 

@@ -76,8 +76,8 @@ import {
   BarChart,
   Bar
 } from 'recharts';
-import { kubernetesService } from '../../services/kubernetes';
-import type { ClusterEvent } from '../../types';
+import { kubernetesService } from '../../services/kubernetes-api';
+import type { ClusterEvent } from '../../types/dev';
 
 interface TabPanelProps {
   children?: React.ReactNode;

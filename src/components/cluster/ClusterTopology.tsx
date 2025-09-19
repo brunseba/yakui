@@ -19,14 +19,15 @@ import {
 import {
   Storage as StorageIcon,
   Memory as MemoryIcon,
-  Speed as SpeedIcon,
+  DeveloperBoard as CpuIcon,
+  Architecture as ArchitectureIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   Error as ErrorIcon,
   Computer as ComputerIcon
 } from '@mui/icons-material';
-import { kubernetesService } from '../../services/kubernetes';
-import { ClusterNode } from '../../types';
+import { kubernetesService } from '../../services/kubernetes-api';
+import { ClusterNode } from '../../types/dev';
 
 interface NodePosition {
   x: number;
@@ -396,7 +397,7 @@ const ClusterTopology: React.FC = () => {
                   </ListItem>
                   <ListItem>
                     <ListItemIcon>
-                      <Speed fontSize="small" />
+                      <ArchitectureIcon fontSize="small" />
                     </ListItemIcon>
                     <ListItemText
                       primary="Architecture"
@@ -420,7 +421,7 @@ const ClusterTopology: React.FC = () => {
                 <List dense>
                   <ListItem>
                     <ListItemIcon>
-                      <Speed fontSize="small" />
+                      <CpuIcon fontSize="small" />
                     </ListItemIcon>
                     <ListItemText
                       primary="CPU"

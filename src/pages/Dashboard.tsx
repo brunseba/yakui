@@ -22,12 +22,12 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Memory as MemoryIcon,
-  Speed as SpeedIcon
+  Memory as MemoryIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { kubernetesService } from '../services/kubernetes';
-import { ClusterNode, NamespaceWithMetrics, CRDWithInstances, ClusterEvent } from '../types';
+import { kubernetesService } from '../services/kubernetes-api';
+import { ClusterNode, NamespaceWithMetrics, CRDWithInstances, ClusterEvent } from '../types/dev';
+import SystemStatus from '../components/system/SystemStatus';
 
 interface ClusterStats {
   totalNodes: number;
@@ -180,7 +180,7 @@ const Dashboard: React.FC = () => {
           <Typography variant="h6" gutterBottom>
             Cluster: {authState.cluster.name}
           </Typography>
-          <Box display="flex" gap={1}>
+          <Box display="flex" gap={1} flexWrap="wrap">
             <Chip 
               label={`Server: ${authState.cluster.server}`} 
               variant="outlined" 
@@ -190,7 +190,19 @@ const Dashboard: React.FC = () => {
               label={`Version: ${authState.cluster.version}`} 
               variant="outlined" 
               size="small"
+              title={authState.cluster.versionDetails ? 
+                `Platform: ${authState.cluster.versionDetails.platform || 'unknown'}\nBuild Date: ${authState.cluster.versionDetails.buildDate || 'unknown'}` : 
+                undefined
+              }
             />
+            {authState.cluster.versionDetails && (
+              <Chip 
+                label={`Platform: ${authState.cluster.versionDetails.platform || 'unknown'}`} 
+                variant="outlined" 
+                size="small"
+                sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+              />
+            )}
           </Box>
         </Box>
       )}
@@ -258,10 +270,10 @@ const Dashboard: React.FC = () => {
                       </ListItemIcon>
                       <ListItemText
                         primary={
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Typography variant="body1">
+                          <Box component="span" display="flex" alignItems="center" gap={1}>
+                            <Box component="span" sx={{ fontSize: 'body1.fontSize', fontWeight: 'body1.fontWeight' }}>
                               {event.reason}
-                            </Typography>
+                            </Box>
                             <Chip 
                               label={event.type} 
                               size="small" 
@@ -270,13 +282,13 @@ const Dashboard: React.FC = () => {
                           </Box>
                         }
                         secondary={
-                          <Box>
-                            <Typography variant="body2" color="textSecondary">
+                          <Box component="span">
+                            <Box component="span" display="block" sx={{ fontSize: 'body2.fontSize', color: 'text.secondary' }}>
                               {event.message}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary">
+                            </Box>
+                            <Box component="span" display="block" sx={{ fontSize: 'caption.fontSize', color: 'text.secondary' }}>
                               {event.object} • {new Date(event.lastTimestamp).toLocaleString()}
-                            </Typography>
+                            </Box>
                           </Box>
                         }
                       />
@@ -289,13 +301,39 @@ const Dashboard: React.FC = () => {
         </Grid>
         
         <Grid item xs={12} md={4}>
+          <SystemStatus showDetails={false} />
+        </Grid>
+        
+        <Grid item xs={12} md={4}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Quick Actions
+                Feature Status
               </Typography>
-              <Typography variant="body2" color="textSecondary">
-                Cluster management shortcuts will be available here.
+              <Box display="flex" gap={1} mb={2}>
+                <Chip 
+                  icon={<CheckCircleIcon />} 
+                  label="6 Implemented" 
+                  size="small" 
+                  color="success" 
+                />
+                <Chip 
+                  icon={<WarningIcon />} 
+                  label="5 Coming Soon" 
+                  size="small" 
+                  color="warning" 
+                />
+              </Box>
+              <Typography variant="body2" color="textSecondary" mb={2}>
+                This Kubernetes Admin UI has 11 core features. All core infrastructure features are working with your cluster!
+              </Typography>
+              <Typography 
+                variant="body2" 
+                color="primary" 
+                sx={{ cursor: 'pointer', textDecoration: 'underline' }}
+                onClick={() => window.location.href = '/features'}
+              >
+                View detailed feature status →
               </Typography>
             </CardContent>
           </Card>

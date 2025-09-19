@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -13,6 +13,7 @@ import {
   Switch
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -41,7 +42,8 @@ function TabPanel(props: TabPanelProps) {
 }
 
 const Login: React.FC = () => {
-  const { login, isLoading, error } = useAuth();
+  const { login, isLoading, error, state } = useAuth();
+  const navigate = useNavigate();
   const [tabValue, setTabValue] = useState(0);
   const [kubeconfig, setKubeconfig] = useState('');
   const [token, setToken] = useState('');
@@ -51,20 +53,33 @@ const Login: React.FC = () => {
     setTabValue(newValue);
   };
 
+  // Redirect to dashboard after successful authentication
+  useEffect(() => {
+    if (state.isAuthenticated) {
+      console.log('Authentication successful, redirecting to dashboard...');
+      navigate('/dashboard', { replace: true });
+    }
+  }, [state.isAuthenticated, navigate]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('Attempting login...');
     try {
       if (tabValue === 0) {
         // Default kubeconfig
+        console.log('Using default kubeconfig...');
         await login();
       } else if (tabValue === 1) {
         // Custom kubeconfig
+        console.log('Using custom kubeconfig...');
         await login(kubeconfig);
       } else {
         // Token auth
+        console.log('Using token authentication...');
         await login(undefined, token);
       }
+      console.log('Login call completed successfully');
     } catch (error) {
       console.error('Login failed:', error);
     }

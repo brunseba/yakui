@@ -502,6 +502,121 @@ class KubernetesApiService {
     return [];
   }
 
+  async getDeployments(namespace: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching deployments in namespace: ${namespace}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/deployments?namespace=${namespace}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch deployments');
+      }
+      
+      const deployments = await response.json();
+      console.log(`[K8s API] Retrieved ${deployments.length} deployments in namespace ${namespace}`);
+      return deployments;
+    } catch (error) {
+      console.error('[K8s API] Failed to get deployments:', error);
+      throw error;
+    }
+  }
+
+  async getServices(namespace: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching services in namespace: ${namespace}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/services?namespace=${namespace}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch services');
+      }
+      
+      const services = await response.json();
+      console.log(`[K8s API] Retrieved ${services.length} services in namespace ${namespace}`);
+      return services;
+    } catch (error) {
+      console.error('[K8s API] Failed to get services:', error);
+      throw error;
+    }
+  }
+
+  async getPods(namespace: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching pods in namespace: ${namespace}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/pods?namespace=${namespace}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch pods');
+      }
+      
+      const pods = await response.json();
+      console.log(`[K8s API] Retrieved ${pods.length} pods in namespace ${namespace}`);
+      return pods;
+    } catch (error) {
+      console.error('[K8s API] Failed to get pods:', error);
+      throw error;
+    }
+  }
+
+  async getConfigMaps(namespace: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching configmaps in namespace: ${namespace}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/configmaps?namespace=${namespace}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch configmaps');
+      }
+      
+      const configMaps = await response.json();
+      console.log(`[K8s API] Retrieved ${configMaps.length} configmaps in namespace ${namespace}`);
+      return configMaps;
+    } catch (error) {
+      console.error('[K8s API] Failed to get configmaps:', error);
+      throw error;
+    }
+  }
+
+  async getSecrets(namespace: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching secrets in namespace: ${namespace}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/secrets?namespace=${namespace}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch secrets');
+      }
+      
+      const secrets = await response.json();
+      console.log(`[K8s API] Retrieved ${secrets.length} secrets in namespace ${namespace}`);
+      return secrets;
+    } catch (error) {
+      console.error('[K8s API] Failed to get secrets:', error);
+      throw error;
+    }
+  }
+
   async getVersion(): Promise<any> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     

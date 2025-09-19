@@ -52,7 +52,7 @@ import {
   Check as CheckIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
-import { kubernetesService } from '../../services/kubernetes';
+import { kubernetesService } from '../../services/kubernetes-api';
 import * as k8s from '@kubernetes/client-node';
 
 interface TabPanelProps {

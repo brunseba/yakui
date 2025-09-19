@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -34,13 +35,13 @@ import {
   Visibility as VisibilityIcon,
   Edit as EditIcon,
   Storage as StorageIcon,
-  Memory as MemoryIcon,
-  Speed as SpeedIcon
+  Memory as MemoryIcon
 } from '@mui/icons-material';
-import { kubernetesService } from '../../services/kubernetes';
-import { NamespaceWithMetrics } from '../../types';
+import { kubernetesService } from '../../services/kubernetes-api';
+import { NamespaceWithMetrics } from '../../types/dev';
 
 const NamespaceManager: React.FC = () => {
+  const navigate = useNavigate();
   const [namespaces, setNamespaces] = useState<NamespaceWithMetrics[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,14 +182,14 @@ const NamespaceManager: React.FC = () => {
       )}
 
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid size={12}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
                 Namespace Overview
               </Typography>
               <Grid container spacing={2} mb={3}>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                   <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
                     <Typography variant="h4" color="primary">
                       {namespaces.length}
@@ -198,7 +199,7 @@ const NamespaceManager: React.FC = () => {
                     </Typography>
                   </Paper>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                   <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
                     <Typography variant="h4" color="success.main">
                       {namespaces.filter(ns => ns.status?.phase === 'Active').length}
@@ -208,7 +209,7 @@ const NamespaceManager: React.FC = () => {
                     </Typography>
                   </Paper>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                   <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
                     <Typography variant="h4" color="warning.main">
                       {namespaces.filter(ns => ns.status?.phase === 'Terminating').length}
@@ -218,7 +219,7 @@ const NamespaceManager: React.FC = () => {
                     </Typography>
                   </Paper>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                   <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
                     <Typography variant="h4" color="info.main">
                       {namespaces.reduce((sum, ns) => sum + (ns.metrics?.podCount || 0), 0)}
@@ -355,7 +356,10 @@ const NamespaceManager: React.FC = () => {
         onClose={handleActionMenuClose}
       >
         <MenuItem onClick={() => {
-          console.log('View details for:', actionMenuNamespace?.metadata?.name);
+          const namespaceName = actionMenuNamespace?.metadata?.name;
+          if (namespaceName) {
+            navigate(`/namespaces/${encodeURIComponent(namespaceName)}`);
+          }
           handleActionMenuClose();
         }}>
           <ListItemIcon>

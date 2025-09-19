@@ -110,10 +110,14 @@ const ResourceManager: React.FC = () => {
   // Dialog states
   const [yamlDialogOpen, setYamlDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<any>(null);
   const [resourceType, setResourceType] = useState<string>('');
   const [yamlContent, setYamlContent] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
+  const [podLogs, setPodLogs] = useState<string>('');
+  const [selectedPod, setSelectedPod] = useState<any>(null);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   useEffect(() => {
     fetchNamespaces();
@@ -143,8 +147,28 @@ const ResourceManager: React.FC = () => {
 
     try {
       setLoading(true);
-      // Note: In a real implementation, you'd have methods to fetch these resources
-      // For now, we'll simulate the structure
+      setError(null);
+      
+      // Fetch all resource types in parallel
+      const [deployments, services, pods, configMaps, secrets] = await Promise.all([
+        kubernetesService.getDeployments(selectedNamespace),
+        kubernetesService.getServices(selectedNamespace),
+        kubernetesService.getPods(selectedNamespace),
+        kubernetesService.getConfigMaps(selectedNamespace),
+        kubernetesService.getSecrets(selectedNamespace)
+      ]);
+      
+      setResources({
+        deployments,
+        services,
+        pods,
+        configMaps,
+        secrets
+      });
+    } catch (err) {
+      console.error('Failed to fetch resources:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load resources');
+      // Set empty arrays on error
       setResources({
         deployments: [],
         services: [],
@@ -152,9 +176,6 @@ const ResourceManager: React.FC = () => {
         configMaps: [],
         secrets: []
       });
-    } catch (err) {
-      console.error('Failed to fetch resources:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load resources');
     } finally {
       setLoading(false);
     }
@@ -302,14 +323,44 @@ data:
   };
 
   const handleDeleteResource = async (resource: any, type: string) => {
-    if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
+    const resourceName = resource.metadata?.name;
+    if (!resourceName) {
+      setError('Resource name not found');
+      return;
+    }
+    
+    if (window.confirm(`Are you sure you want to delete the ${type} "${resourceName}"? This action cannot be undone.`)) {
       try {
-        // In a real implementation, you would delete the resource
-        console.log('Deleting resource:', resource);
-        await fetchResources();
+        setError(null);
+        await kubernetesService.deleteResource(type.toLowerCase(), selectedNamespace, resourceName);
+        await fetchResources(); // Refresh the resource list
       } catch (error) {
         console.error('Failed to delete resource:', error);
+        setError(error instanceof Error ? error.message : `Failed to delete ${type}`);
       }
+    }
+  };
+
+  const handleViewPodLogs = async (pod: any) => {
+    const podName = pod.metadata?.name;
+    if (!podName) {
+      setError('Pod name not found');
+      return;
+    }
+    
+    setSelectedPod(pod);
+    setLogsDialogOpen(true);
+    setLoadingLogs(true);
+    setPodLogs('');
+    
+    try {
+      const logs = await kubernetesService.getPodLogs(selectedNamespace, podName);
+      setPodLogs(logs);
+    } catch (error) {
+      console.error('Failed to get pod logs:', error);
+      setPodLogs(`Error fetching logs: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoadingLogs(false);
     }
   };
 
@@ -636,7 +687,10 @@ data:
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="View Logs">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleViewPodLogs(pod)}
+                            >
                               <GetAppIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
@@ -932,6 +986,63 @@ data:
           </Button>
           <Button onClick={handleSaveResource} variant="contained" startIcon={<SaveIcon />}>
             Create Resource
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pod Logs Dialog */}
+      <Dialog 
+        open={logsDialogOpen} 
+        onClose={() => setLogsDialogOpen(false)} 
+        maxWidth="lg" 
+        fullWidth
+        PaperProps={{ style: { minHeight: '80vh' } }}
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">
+              Logs: {selectedPod?.metadata?.name}
+            </Typography>
+            <Button
+              startIcon={<RefreshIcon />}
+              onClick={() => selectedPod && handleViewPodLogs(selectedPod)}
+              disabled={loadingLogs}
+            >
+              Refresh
+            </Button>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {loadingLogs ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <LinearProgress sx={{ mb: 2 }} />
+              <Typography variant="body2" color="textSecondary">
+                Loading pod logs...
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ height: '60vh', fontFamily: 'monospace', fontSize: '12px' }}>
+              <Editor
+                height="60vh"
+                language="plaintext"
+                value={podLogs}
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 12,
+                  lineNumbers: 'off',
+                  wordWrap: 'on',
+                  theme: 'vs-light',
+                  automaticLayout: true
+                }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLogsDialogOpen(false)}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

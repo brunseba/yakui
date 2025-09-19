@@ -182,16 +182,25 @@ export const validateK8sResource = (yaml: string): ValidationResult => {
     let hasApiVersion = false;
     let hasKind = false;
     let hasMetadataName = false;
+    let inMetadataSection = false;
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmed = line.trim();
+      
       if (trimmed.startsWith('apiVersion:')) {
         hasApiVersion = true;
       }
       if (trimmed.startsWith('kind:')) {
         hasKind = true;
       }
-      if (trimmed.startsWith('name:') && line.includes('metadata')) {
+      if (trimmed === 'metadata:') {
+        inMetadataSection = true;
+      } else if (trimmed.match(/^[a-zA-Z]+:/) && !trimmed.startsWith(' ')) {
+        // We've hit another top-level section
+        inMetadataSection = false;
+      }
+      if (inMetadataSection && trimmed.startsWith('name:')) {
         hasMetadataName = true;
       }
     }

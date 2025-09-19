@@ -1,4 +1,4 @@
-import { V1Node, V1Pod, V1Namespace, V1CustomResourceDefinition, V1ServiceAccount, V1Role, V1RoleBinding, V1ClusterRole, V1ClusterRoleBinding } from '@kubernetes/client-node';
+// Development types that don't import @kubernetes/client-node to avoid Node.js dependencies
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -19,11 +19,25 @@ export interface ClusterInfo {
   name: string;
   server: string;
   version: string;
+  versionDetails?: {
+    major: string;
+    minor: string;
+    gitVersion: string;
+    buildDate: string;
+    platform: string;
+  };
   nodes: number;
   namespaces: number;
 }
 
-export interface ClusterNode extends V1Node {
+export interface ClusterNode {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    labels?: Record<string, string>;
+    creationTimestamp?: string | Date;
+  };
   status: {
     conditions: Array<{
       type: string;
@@ -50,7 +64,17 @@ export interface ClusterNode extends V1Node {
   };
 }
 
-export interface NamespaceWithMetrics extends V1Namespace {
+export interface NamespaceWithMetrics {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    labels?: Record<string, string>;
+    creationTimestamp?: string | Date;
+  };
+  status?: {
+    phase?: string;
+  };
   metrics?: {
     podCount: number;
     cpuUsage: string;
@@ -63,7 +87,23 @@ export interface NamespaceWithMetrics extends V1Namespace {
   };
 }
 
-export interface CRDWithInstances extends V1CustomResourceDefinition {
+export interface CRDWithInstances {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    creationTimestamp?: string | Date;
+  };
+  spec?: {
+    group?: string;
+    versions?: Array<{ name: string; served: boolean; storage: boolean }>;
+    scope?: string;
+    names?: {
+      plural?: string;
+      singular?: string;
+      kind?: string;
+    };
+  };
   instances?: number;
   scope: 'Cluster' | 'Namespaced';
 }
@@ -94,15 +134,42 @@ export interface Permission {
   resourceNames?: string[];
 }
 
-export interface RoleWithBinding extends V1Role {
-  bindings?: V1RoleBinding[];
+export interface RoleWithBinding {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+  };
+  rules?: Array<{
+    apiGroups: string[];
+    resources: string[];
+    verbs: string[];
+  }>;
+  bindings?: any[];
 }
 
-export interface ClusterRoleWithBinding extends V1ClusterRole {
-  bindings?: V1ClusterRoleBinding[];
+export interface ClusterRoleWithBinding {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+  };
+  rules?: Array<{
+    apiGroups: string[];
+    resources: string[];
+    verbs: string[];
+  }>;
+  bindings?: any[];
 }
 
-export interface ServiceAccountWithSecrets extends V1ServiceAccount {
+export interface ServiceAccountWithSecrets {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+  };
   tokens?: Array<{
     name: string;
     token: string;
