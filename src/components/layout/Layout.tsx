@@ -32,7 +32,7 @@ import {
   Logout as LogoutIcon,
   ExpandLess,
   ExpandMore,
-  Kubernetes as KubernetesIcon,
+  Apps as AppsIcon,
   Visibility as VisibilityIcon,
   SupervisorAccount as SupervisorAccountIcon,
   Extension as ExtensionIcon,
@@ -40,7 +40,14 @@ import {
   Group as GroupIcon,
   Shield as ShieldIcon,
   BugReport as BugReportIcon,
-  Policy as PolicyIcon
+  Policy as PolicyIcon,
+  Folder as FolderIcon,
+  Lock as LockIcon,
+  Assignment as AssignmentIcon,
+  Tune as TuneIcon,
+  DataObject as DataObjectIcon,
+  Key as KeyIcon,
+  ViewModule as ViewModuleIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -62,6 +69,12 @@ const navigationItems: NavigationItem[] = [
     label: 'Dashboard',
     icon: <DashboardIcon />,
     path: '/dashboard'
+  },
+  {
+    id: 'features',
+    label: 'Feature Status',
+    icon: <AssignmentIcon />,
+    path: '/features'
   },
   {
     id: 'cluster',
@@ -91,24 +104,24 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'workloads',
     label: 'Workloads',
-    icon: <KubernetesIcon />,
+    icon: <AppsIcon />,
     children: [
       {
         id: 'deployments',
         label: 'Deployments',
-        icon: <KubernetesIcon />,
+        icon: <AppsIcon />,
         path: '/workloads/deployments'
       },
       {
         id: 'pods',
         label: 'Pods',
-        icon: <KubernetesIcon />,
+        icon: <AppsIcon />,
         path: '/workloads/pods'
       },
       {
         id: 'services',
         label: 'Services',
-        icon: <KubernetesIcon />,
+        icon: <AppsIcon />,
         path: '/workloads/services'
       }
     ]
@@ -118,6 +131,12 @@ const navigationItems: NavigationItem[] = [
     label: 'Custom Resources',
     icon: <ExtensionIcon />,
     path: '/crds'
+  },
+  {
+    id: 'resources',
+    label: 'Resource Manager',
+    icon: <AppsIcon />,
+    path: '/resources'
   },
   {
     id: 'rbac',
@@ -191,6 +210,75 @@ const navigationItems: NavigationItem[] = [
         label: 'Compliance',
         icon: <PolicyIcon />,
         path: '/security/compliance'
+      }
+    ]
+  },
+  {
+    id: 'storage',
+    label: 'Storage',
+    icon: <StorageIcon />,
+    children: [
+      {
+        id: 'persistent-volumes',
+        label: 'Persistent Volumes',
+        icon: <StorageIcon />,
+        path: '/storage/persistent-volumes'
+      },
+      {
+        id: 'persistent-volume-claims',
+        label: 'PV Claims',
+        icon: <ViewModuleIcon />,
+        path: '/storage/persistent-volume-claims'
+      },
+      {
+        id: 'storage-classes',
+        label: 'Storage Classes',
+        icon: <FolderIcon />,
+        path: '/storage/storage-classes'
+      }
+    ]
+  },
+  {
+    id: 'configuration',
+    label: 'Configuration',
+    icon: <SettingsIcon />,
+    children: [
+      {
+        id: 'configmaps',
+        label: 'ConfigMaps',
+        icon: <DataObjectIcon />,
+        path: '/configuration/configmaps'
+      },
+      {
+        id: 'secrets',
+        label: 'Secrets',
+        icon: <KeyIcon />,
+        path: '/configuration/secrets'
+      }
+    ]
+  },
+  {
+    id: 'resource-quotas',
+    label: 'Resource Management',
+    icon: <TuneIcon />,
+    children: [
+      {
+        id: 'resource-quotas',
+        label: 'Resource Quotas',
+        icon: <AssignmentIcon />,
+        path: '/resources/quotas'
+      },
+      {
+        id: 'limit-ranges',
+        label: 'Limit Ranges',
+        icon: <TuneIcon />,
+        path: '/resources/limits'
+      },
+      {
+        id: 'priority-classes',
+        label: 'Priority Classes',
+        icon: <PolicyIcon />,
+        path: '/resources/priority-classes'
       }
     ]
   }
@@ -283,7 +371,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div>
       <Toolbar>
         <Box display="flex" alignItems="center" width="100%">
-          <KubernetesIcon sx={{ mr: 1 }} />
+          <AppsIcon sx={{ mr: 1 }} />
           <Typography variant="h6" noWrap>
             K8s Admin
           </Typography>

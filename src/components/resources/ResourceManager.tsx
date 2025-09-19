@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -56,7 +57,7 @@ import {
 } from '@mui/icons-material';
 import Editor from '@monaco-editor/react';
 import * as k8s from '@kubernetes/client-node';
-import { kubernetesService } from '../../services/kubernetes';
+import { kubernetesService } from '../../services/kubernetes-api';
 import * as yaml from 'js-yaml';
 
 interface TabPanelProps {
@@ -90,6 +91,7 @@ interface ResourceData {
 }
 
 const ResourceManager: React.FC = () => {
+  const navigate = useNavigate();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -292,6 +294,13 @@ data:
     }
   };
 
+  const handleViewResourceDetails = (resource: any, type: string) => {
+    const resourceName = resource.metadata?.name;
+    if (resourceName && selectedNamespace) {
+      navigate(`/resources/${type.toLowerCase()}/${selectedNamespace}/${encodeURIComponent(resourceName)}`);
+    }
+  };
+
   const handleDeleteResource = async (resource: any, type: string) => {
     if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
       try {
@@ -429,12 +438,21 @@ data:
                         Age: {formatAge(deployment.metadata?.creationTimestamp)}
                       </Typography>
                       <Box display="flex" gap={1} mt={2}>
+                        <Tooltip title="View Details">
+                          <IconButton 
+                            size="small" 
+                            color="primary"
+                            onClick={() => handleViewResourceDetails(deployment, 'deployment')}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="View YAML">
                           <IconButton 
                             size="small" 
                             onClick={() => handleViewResource(deployment, 'deployment')}
                           >
-                            <VisibilityIcon fontSize="small" />
+                            <CodeIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Edit">
@@ -520,12 +538,21 @@ data:
                       <TableCell>{formatAge(service.metadata?.creationTimestamp)}</TableCell>
                       <TableCell>
                         <Box display="flex" gap={0.5}>
+                          <Tooltip title="View Details">
+                            <IconButton 
+                              size="small" 
+                              color="primary"
+                              onClick={() => handleViewResourceDetails(service, 'service')}
+                            >
+                              <VisibilityIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="View YAML">
                             <IconButton 
                               size="small" 
                               onClick={() => handleViewResource(service, 'service')}
                             >
-                              <VisibilityIcon fontSize="small" />
+                              <CodeIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Edit">
@@ -599,6 +626,15 @@ data:
                       <TableCell>{pod.spec?.nodeName}</TableCell>
                       <TableCell>
                         <Box display="flex" gap={0.5}>
+                          <Tooltip title="View Details">
+                            <IconButton 
+                              size="small" 
+                              color="primary"
+                              onClick={() => handleViewResourceDetails(pod, 'pod')}
+                            >
+                              <VisibilityIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="View Logs">
                             <IconButton size="small">
                               <GetAppIcon fontSize="small" />
@@ -609,7 +645,7 @@ data:
                               size="small" 
                               onClick={() => handleViewResource(pod, 'pod')}
                             >
-                              <VisibilityIcon fontSize="small" />
+                              <CodeIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         </Box>
@@ -670,12 +706,21 @@ data:
                         Age: {formatAge(configMap.metadata?.creationTimestamp)}
                       </Typography>
                       <Box display="flex" gap={1} mt={2}>
+                        <Tooltip title="View Details">
+                          <IconButton 
+                            size="small" 
+                            color="primary"
+                            onClick={() => handleViewResourceDetails(configMap, 'configmap')}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="View YAML">
                           <IconButton 
                             size="small" 
                             onClick={() => handleViewResource(configMap, 'configmap')}
                           >
-                            <VisibilityIcon fontSize="small" />
+                            <CodeIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Edit">
@@ -755,12 +800,21 @@ data:
                         Age: {formatAge(secret.metadata?.creationTimestamp)}
                       </Typography>
                       <Box display="flex" gap={1} mt={2}>
+                        <Tooltip title="View Details">
+                          <IconButton 
+                            size="small" 
+                            color="primary"
+                            onClick={() => handleViewResourceDetails(secret, 'secret')}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="View YAML">
                           <IconButton 
                             size="small" 
                             onClick={() => handleViewResource(secret, 'secret')}
                           >
-                            <VisibilityIcon fontSize="small" />
+                            <CodeIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Edit">
