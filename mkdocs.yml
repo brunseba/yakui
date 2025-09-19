@@ -1,0 +1,145 @@
+site_name: Kubernetes Admin UI
+site_description: A comprehensive web-based administration interface for Kubernetes clusters
+site_author: Kubernetes Admin UI Team
+site_url: https://kubernetes-admin-ui.github.io/
+
+# Repository
+repo_name: kubernetes-admin-ui
+repo_url: https://github.com/user/kubernetes-admin-ui
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2025 Kubernetes Admin UI Team
+
+# Configuration
+theme:
+  name: material
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - search.highlight
+    - content.code.copy
+    - content.code.select
+  icon:
+    repo: fontawesome/brands/github
+
+# Plugins
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+  - mermaid2:
+      arguments:
+        theme: |
+          ^(localStorage.getItem('__palette') || 'auto') === 'auto'
+          ? 'neutral'
+          : (localStorage.getItem('__palette') || 'auto') === 'dark'
+          ? 'dark'
+          : 'default'
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+      emoji_index: !!python/name:materialx.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: user
+      repo: kubernetes-admin-ui
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Page tree
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Configuration: configuration.md
+    - Usage: usage.md
+  - Features:
+    - Resource Management: features/resource-management.md
+    - Namespace Management: features/namespace-management.md
+    - RBAC Management: features/rbac-management.md
+    - Security Dashboard: features/security-dashboard.md
+  - API Reference:
+    - Endpoints: api/endpoints.md
+    - Authentication: api/authentication.md
+    - Examples: api/examples.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Architecture: development/architecture.md
+    - Testing: development/testing.md
+  - Changelog: changelog.md
+
+# Extra
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/user/kubernetes-admin-ui
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/user/kubernetes-admin-ui
+
+# PDF export configuration
+extra_css:
+  - stylesheets/print.css
+
+# Analytics (optional)
+# extra:
+#   analytics:
+#     provider: google
+#     property: G-XXXXXXXXXX
