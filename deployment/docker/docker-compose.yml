@@ -2,14 +2,14 @@ services:
   # Frontend Development Server (Vite)
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.dev-frontend
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dev-frontend
       target: development
     container_name: yakui-frontend
     ports:
       - "5173:5173"
     volumes:
-      - .:/app
+      - ../..:/app
       - /app/node_modules
       - /app/dist
     environment:
@@ -34,13 +34,13 @@ services:
   # Backend API Server (Express + Kubernetes Client)
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.dev-backend
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dev-backend
     container_name: yakui-backend
     ports:
       - "3001:3001"
     volumes:
-      - .:/app
+      - ../..:/app
       - /app/node_modules
       - ~/.kube:/home/node/.kube:ro  # Mount kubeconfig for Kubernetes access
     environment:
@@ -85,7 +85,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

@@ -9,23 +9,23 @@ echo "🔧 Fixing TypeScript compilation errors..."
 echo "📝 Removing unused import statements..."
 
 # Remove unused imports from Layout.tsx
-sed -i '' 's/  Kubernetes as KubernetesIcon,/  \/\/ Kubernetes as KubernetesIcon,/' src/components/layout/Layout.tsx
+sed -i '' 's/  Kubernetes as KubernetesIcon,/  \/\/ Kubernetes as KubernetesIcon,/' ../app/src/components/layout/Layout.tsx
 
 # Fix Grid component prop issues by removing 'item' prop which is no longer supported in MUI v5
 echo "📝 Fixing MUI Grid component issues..."
 
-find src/components -name "*.tsx" -exec sed -i '' 's/<Grid item/<Grid/g' {} \;
+find ../app/src/components -name "*.tsx" -exec sed -i '' 's/<Grid item/<Grid/g' {} \;
 
 # Fix handleTabChange unused parameter warning
 echo "📝 Fixing unused event parameters in tab handlers..."
 
-find src/components -name "*.tsx" -exec sed -i '' 's/handleTabChange = (event: React.SyntheticEvent, newValue: number)/handleTabChange = (_event: React.SyntheticEvent, newValue: number)/g' {} \;
+find ../app/src/components -name "*.tsx" -exec sed -i '' 's/handleTabChange = (event: React.SyntheticEvent, newValue: number)/handleTabChange = (_event: React.SyntheticEvent, newValue: number)/g' {} \;
 
 # Fix formatAge function calls with Date objects
 echo "📝 Fixing formatAge function calls..."
 
 # Create a simple helper to convert dates
-cat > src/utils/dateUtils.ts << 'EOF'
+cat > ../app/src/utils/dateUtils.ts << 'EOF'
 export const formatAge = (timestamp: string | Date | undefined): string => {
   if (!timestamp) return 'N/A';
   
@@ -45,24 +45,24 @@ export const formatAge = (timestamp: string | Date | undefined): string => {
 EOF
 
 # Update imports to use the new formatAge function
-find src/components -name "*.tsx" -exec sed -i '' 's|import.*formatAge.*from.*utils.*|import { formatAge } from '\''../utils/dateUtils'\'';|g' {} \;
+find ../app/src/components -name "*.tsx" -exec sed -i '' 's|import.*formatAge.*from.*utils.*|import { formatAge } from '\''../utils/dateUtils'\'';|g' {} \;
 
 # Fix useRef hook without initial value
 echo "📝 Fixing useRef hooks..."
 
-sed -i '' 's/useRef<NodeJS.Timeout>()/useRef<NodeJS.Timeout>(undefined as any)/g' src/components/monitoring/MonitoringDashboard.tsx
+sed -i '' 's/useRef<NodeJS.Timeout>()/useRef<NodeJS.Timeout>(undefined as any)/g' ../app/src/components/monitoring/MonitoringDashboard.tsx
 
 # Add missing Speed icon import
 echo "📝 Fixing missing icon imports..."
 
 # Remove Speed icon usage since it doesn't exist in MUI
-find src/components -name "*.tsx" -exec sed -i '' 's/<Speed fontSize="small" \/>/<SpeedIcon fontSize="small" \/>/g' {} \;
+find ../app/src/components -name "*.tsx" -exec sed -i '' 's/<Speed fontSize="small" \/>/<SpeedIcon fontSize="small" \/>/g' {} \;
 
 # Fix type-only imports
 echo "📝 Fixing type-only imports..."
 
 # Already fixed in previous edits, but ensure consistency
-find src -name "*.tsx" -exec sed -i '' 's/import { \([^}]*ReactNode[^}]*\) } from '\''react'\'';/import type { \1 } from '\''react'\'';/g' {} \;
+find ../app/src -name "*.tsx" -exec sed -i '' 's/import { \([^}]*ReactNode[^}]*\) } from '\''react'\'';/import type { \1 } from '\''react'\'';/g' {} \;
 
 # Remove unused variables by prefixing with underscore
 echo "📝 Prefixing unused variables with underscore..."

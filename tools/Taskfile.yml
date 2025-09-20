@@ -117,7 +117,7 @@ tasks:
     cmds:
       - echo "🔄 Stopping development processes..."
       - 'pkill -f "{{.PWD}}/node_modules/.bin/vite" || true'
-      - 'pkill -f "{{.PWD}}/dev-server.cjs" || true'
+      - 'pkill -f "{{.PWD}}/tools/dev-server.cjs" || true'
       - 'pkill -f "npm run dev" || true'
       - 'pkill -f "npm run dev:api" || true'
       - 'pkill -f "npm run dev:full" || true'

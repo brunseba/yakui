@@ -11,14 +11,16 @@ RUN addgroup -g 1001 -S nodejs && \
     adduser -S frontend -u 1001 -G nodejs
 
 # Copy package files for dependency installation
-COPY package.json package-lock.json ./
+COPY ../../package.json ../../package-lock.json ./
 
 # Install dependencies with exact versions from lock file
 RUN npm ci && \
     npm cache clean --force
 
 # Copy source code
-COPY . .
+COPY ../../app ./app
+COPY ../../config ./config
+COPY ../../tools ./tools
 
 # Change ownership to non-root user
 RUN chown -R frontend:nodejs /app

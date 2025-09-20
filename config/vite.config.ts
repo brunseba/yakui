@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  root: resolve(__dirname, '../app'),
+  publicDir: resolve(__dirname, '../app/public'),
   define: {
     global: 'globalThis',
     'process.env': {},
@@ -46,6 +49,8 @@ export default defineConfig({
     ]
   },
   build: {
+    outDir: resolve(__dirname, '../dist'),
+    emptyOutDir: true,
     rollupOptions: {
       external: [
         'child_process',

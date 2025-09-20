@@ -4,7 +4,7 @@ FROM node:18-alpine as dependencies
 WORKDIR /app
 
 # Copy package files first for better layer caching
-COPY package.json package-lock.json ./
+COPY ../../package.json ../../package-lock.json ./
 
 # Install all dependencies (including dev for build)
 RUN npm ci
@@ -17,8 +17,14 @@ WORKDIR /app
 # Copy dependencies from previous stage
 COPY --from=dependencies /app/node_modules ./node_modules
 
-# Copy source files
-COPY . .
+# Copy configuration files
+COPY ../../config ./config
+# Copy package.json for scripts
+COPY ../../package.json ./
+# Copy application source
+COPY ../../app ./app
+# Copy tools (for dev-server if needed)
+COPY ../../tools ./tools
 
 # Build the application
 RUN npm run build
@@ -33,7 +39,7 @@ RUN apk add --no-cache wget
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY ../../config/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Create nginx user and set permissions
 RUN adduser -D -s /bin/sh nginx && \
