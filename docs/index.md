@@ -6,17 +6,40 @@ A comprehensive web-based administration interface for Kubernetes clusters, prov
 
 ## Latest Release: v2.1.0
 
-### 🎨 UI/UX Enhancements
+### 🚀 Comprehensive CRD Dependency Analysis & Infrastructure Enhancement
 
-The latest release introduces comprehensive UI improvements and branding updates:
+This major feature release introduces advanced CRD dependency analysis capabilities, comprehensive export functionality, and critical bug fixes:
 
-#### ✨ New Features
+#### ✨ Enhanced CRD Dependency Analysis
 
-- **🌙 Dark Mode Support**: Full dark/light theme toggle with system preference detection
-- **🎨 yakui Branding**: Updated logo and visual identity throughout the application
-- **📱 Responsive Design**: Optimized layout for mobile and desktop experiences
-- **🔄 Theme Persistence**: User theme preferences saved to localStorage
-- **⚡ Performance**: Improved Mermaid graph generation for CRD dependency exports
+- **🔍 Multi-API Group Selection**: Advanced filtering and selection of API groups for targeted analysis
+- **📊 Enhanced Dependency Browser**: Comprehensive CRD dependency browser with real-time statistics
+- **⚙️ Advanced Visualization**: Configurable analysis depth with shallow/deep schema traversal
+- **🎯 API Group Selector**: Interactive component with real-time CRD counts and metadata
+- **📋 Dependency Table**: Enhanced filtering and sorting capabilities for dependency relationships
+
+#### 📊 Data Export & Analytics System
+
+- **💾 Multi-Format Export**: Support for JSON, CSV, Excel, PDF, and Markdown export formats
+- **📈 Advanced Analytics**: Dependency complexity metrics, circular dependency detection, isolation analysis
+- **📝 Metadata Tracking**: Comprehensive export metadata with timestamp, cluster info, and analysis options
+- **⚙️ Core Resources Config**: Built-in configuration for 20+ standard Kubernetes resource types
+- **🔍 Schema Analysis**: OpenAPI v3 schema support with property traversal and validation
+
+#### 🏗️ Infrastructure & Production Readiness
+
+- **🌍 Environment Configuration**: Production-ready `.env.example` with comprehensive documentation
+- **✅ Configuration Validation**: Robust validation utilities for runtime configuration
+- **🧪 Testing Infrastructure**: Automated dependency validation test suite (`test-dependencies.sh`)
+- **📱 Graph Dimensions Hook**: Responsive layout support for various screen sizes
+- **🛡️ Enhanced Error Handling**: Improved validation context with better error boundaries
+
+#### 🐛 Critical Bug Fixes
+
+- **🔧 JavaScript/TypeScript Compatibility**: Replaced all `substr()` usage with modern `substring()` method
+- **🛡️ Type Safety Improvements**: Added comprehensive string type validation before method calls
+- **🚨 Error Boundary Enhancements**: Improved exception handling and recovery mechanisms
+- **✅ Parsing Safety**: Enhanced dependency analyzer with null/undefined checking
 
 ### 📁 Project Structure Reorganization
 
