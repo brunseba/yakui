@@ -1,0 +1,196 @@
+{
+  "coreResources": [
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "Pod",
+      "plural": "pods",
+      "namespaced": true,
+      "description": "A Pod is a collection of containers that can run on a host"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "Service",
+      "plural": "services",
+      "namespaced": true,
+      "description": "A Service is an abstraction for network access to pods"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "ConfigMap",
+      "plural": "configmaps",
+      "namespaced": true,
+      "description": "ConfigMap holds configuration data for pods to consume"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "Secret",
+      "plural": "secrets",
+      "namespaced": true,
+      "description": "Secret holds secret data of a certain type"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "PersistentVolume",
+      "plural": "persistentvolumes",
+      "namespaced": false,
+      "description": "PersistentVolume represents a piece of storage"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "PersistentVolumeClaim",
+      "plural": "persistentvolumeclaims",
+      "namespaced": true,
+      "description": "PersistentVolumeClaim is a user's request for storage"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "Namespace",
+      "plural": "namespaces",
+      "namespaced": false,
+      "description": "Namespace provides a scope for names"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "Node",
+      "plural": "nodes",
+      "namespaced": false,
+      "description": "Node is a worker node in Kubernetes"
+    },
+    {
+      "group": "core",
+      "version": "v1",
+      "kind": "ServiceAccount",
+      "plural": "serviceaccounts",
+      "namespaced": true,
+      "description": "ServiceAccount binds together a name, a principal, and a set of tokens"
+    },
+    {
+      "group": "apps",
+      "version": "v1",
+      "kind": "Deployment",
+      "plural": "deployments",
+      "namespaced": true,
+      "description": "Deployment enables declarative updates for Pods and ReplicaSets"
+    },
+    {
+      "group": "apps",
+      "version": "v1",
+      "kind": "ReplicaSet",
+      "plural": "replicasets",
+      "namespaced": true,
+      "description": "ReplicaSet ensures that a specified number of pod replicas are running"
+    },
+    {
+      "group": "apps",
+      "version": "v1",
+      "kind": "StatefulSet",
+      "plural": "statefulsets",
+      "namespaced": true,
+      "description": "StatefulSet manages the deployment and scaling of Pods with persistent storage"
+    },
+    {
+      "group": "apps",
+      "version": "v1",
+      "kind": "DaemonSet",
+      "plural": "daemonsets",
+      "namespaced": true,
+      "description": "DaemonSet ensures that all nodes run a copy of a Pod"
+    },
+    {
+      "group": "batch",
+      "version": "v1",
+      "kind": "Job",
+      "plural": "jobs",
+      "namespaced": true,
+      "description": "Job represents a finite task that runs one or more pods to completion"
+    },
+    {
+      "group": "batch",
+      "version": "v1",
+      "kind": "CronJob",
+      "plural": "cronjobs",
+      "namespaced": true,
+      "description": "CronJob represents a time-based Job"
+    },
+    {
+      "group": "networking.k8s.io",
+      "version": "v1",
+      "kind": "Ingress",
+      "plural": "ingresses",
+      "namespaced": true,
+      "description": "Ingress manages external access to services"
+    },
+    {
+      "group": "networking.k8s.io",
+      "version": "v1",
+      "kind": "NetworkPolicy",
+      "plural": "networkpolicies",
+      "namespaced": true,
+      "description": "NetworkPolicy describes allowed network traffic"
+    },
+    {
+      "group": "rbac.authorization.k8s.io",
+      "version": "v1",
+      "kind": "Role",
+      "plural": "roles",
+      "namespaced": true,
+      "description": "Role contains rules that represent a set of permissions"
+    },
+    {
+      "group": "rbac.authorization.k8s.io",
+      "version": "v1",
+      "kind": "ClusterRole",
+      "plural": "clusterroles",
+      "namespaced": false,
+      "description": "ClusterRole contains rules that represent a set of permissions"
+    },
+    {
+      "group": "rbac.authorization.k8s.io",
+      "version": "v1",
+      "kind": "RoleBinding",
+      "plural": "rolebindings",
+      "namespaced": true,
+      "description": "RoleBinding references a role, but does not contain it"
+    },
+    {
+      "group": "rbac.authorization.k8s.io",
+      "version": "v1",
+      "kind": "ClusterRoleBinding",
+      "plural": "clusterrolebindings",
+      "namespaced": false,
+      "description": "ClusterRoleBinding references a ClusterRole, but does not contain it"
+    },
+    {
+      "group": "storage.k8s.io",
+      "version": "v1",
+      "kind": "StorageClass",
+      "plural": "storageclasses",
+      "namespaced": false,
+      "description": "StorageClass describes the parameters for a class of storage"
+    },
+    {
+      "group": "policy",
+      "version": "v1",
+      "kind": "PodDisruptionBudget",
+      "plural": "poddisruptionbudgets",
+      "namespaced": true,
+      "description": "PodDisruptionBudget limits the number of pods that are down"
+    },
+    {
+      "group": "autoscaling",
+      "version": "v2",
+      "kind": "HorizontalPodAutoscaler",
+      "plural": "horizontalpodautoscalers",
+      "namespaced": true,
+      "description": "HorizontalPodAutoscaler automatically scales pods based on metrics"
+    }
+  ]
+}
