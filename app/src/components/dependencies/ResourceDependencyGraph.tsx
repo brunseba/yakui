@@ -351,16 +351,20 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
     let filteredNodes = graph.nodes;
     
     if (searchTerm) {
-      filteredNodes = filteredNodes.filter(node => 
-        node.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        node.kind.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (node.namespace && node.namespace.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
+      filteredNodes = filteredNodes.filter(node => {
+        if (!node) return false;
+        const searchLower = searchTerm.toLowerCase();
+        return (
+          (node.name && node.name.toLowerCase().includes(searchLower)) ||
+          (node.kind && node.kind.toLowerCase().includes(searchLower)) ||
+          (node.namespace && node.namespace.toLowerCase().includes(searchLower))
+        );
+      });
     }
     
     if (selectedResourceTypes.length > 0) {
       filteredNodes = filteredNodes.filter(node => 
-        selectedResourceTypes.includes(node.kind)
+        node && node.kind && selectedResourceTypes.includes(node.kind)
       );
     }
 
@@ -369,17 +373,18 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
 
     // Filter edges
     let filteredEdges = graph.edges.filter(edge => 
+      edge && edge.source && edge.target &&
       nodeIds.has(edge.source) && nodeIds.has(edge.target)
     );
 
     if (selectedDependencyTypes.length > 0) {
       filteredEdges = filteredEdges.filter(edge => 
-        selectedDependencyTypes.includes(edge.type)
+        edge && edge.type && selectedDependencyTypes.includes(edge.type)
       );
     }
 
     if (!showWeakDependencies) {
-      filteredEdges = filteredEdges.filter(edge => edge.strength === 'strong');
+      filteredEdges = filteredEdges.filter(edge => edge && edge.strength === 'strong');
     }
 
     // Convert to ReactFlow format
@@ -405,24 +410,26 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
         },
       }));
 
-    const processedEdges: Edge[] = filteredEdges.map(edge => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: 'dependencyEdge',
-      data: {
-        type: edge.type,
-        strength: edge.strength,
-        metadata: edge.metadata,
-        onClick: () => onEdgeClick?.(edge)
-      },
-      animated: edge.strength === 'strong',
-      style: {
-        stroke: dependencyAnalyzer.getDependencyTypeColor(edge.type),
-        strokeWidth: edge.strength === 'strong' ? 3 : 1,
-        strokeDasharray: edge.strength === 'weak' ? '5,5' : 'none'
-      }
-    }));
+    const processedEdges: Edge[] = filteredEdges
+      .filter(edge => edge && edge.id && edge.source && edge.target && edge.type)
+      .map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: 'dependencyEdge',
+        data: {
+          type: edge.type,
+          strength: edge.strength || 'weak',
+          metadata: edge.metadata || {},
+          onClick: () => onEdgeClick?.(edge)
+        },
+        animated: edge.strength === 'strong',
+        style: {
+          stroke: dependencyAnalyzer.getDependencyTypeColor(edge.type),
+          strokeWidth: edge.strength === 'strong' ? 3 : 1,
+          strokeDasharray: edge.strength === 'weak' ? '5,5' : 'none'
+        }
+      }));
 
     return { processedNodes, processedEdges };
   }, [graph, searchTerm, selectedResourceTypes, selectedDependencyTypes, showWeakDependencies, onNodeClick, onEdgeClick]);
