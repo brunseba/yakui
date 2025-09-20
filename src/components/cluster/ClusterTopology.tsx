@@ -5,7 +5,6 @@ import {
   CardContent,
   Typography,
   Grid,
-  Avatar,
   Chip,
   LinearProgress,
   Alert,
@@ -13,17 +12,13 @@ import {
   List,
   ListItem,
   ListItemIcon,
-  ListItemText,
-  Tooltip
+  ListItemText
 } from '@mui/material';
 import {
   Storage as StorageIcon,
   Memory as MemoryIcon,
   DeveloperBoard as CpuIcon,
   Architecture as ArchitectureIcon,
-  CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon,
-  Error as ErrorIcon,
   Computer as ComputerIcon
 } from '@mui/icons-material';
 import { kubernetesService } from '../../services/kubernetes-api';
@@ -78,14 +73,14 @@ const ClusterTopology: React.FC = () => {
       const node = nodes[i];
       const nodeName = node.metadata?.name || '';
       
-      // Get pod count for this node
+      // Get pod count for this node using our browser-compatible service
       let podCount = 0;
       try {
-        const coreApi = kubernetesService.getKubeConfig().makeApiClient(await import('@kubernetes/client-node').then(k8s => k8s.CoreV1Api));
-        const pods = await coreApi.listPodForAllNamespaces(undefined, undefined, `spec.nodeName=${nodeName}`);
-        podCount = pods.body.items.length;
+        const pods = await kubernetesService.getPodsByNode(nodeName);
+        podCount = pods.length;
       } catch (error) {
-        // Ignore pod count errors
+        console.warn(`Failed to get pod count for node ${nodeName}:`, error);
+        // Keep podCount as 0 on error
       }
 
       // Calculate position in a circular layout
@@ -143,7 +138,7 @@ const ClusterTopology: React.FC = () => {
 
     // Draw nodes
     topologyNodes.forEach((topologyNode) => {
-      const { node, position, health } = topologyNode;
+      const { node, position, health, podCount } = topologyNode;
       const { x, y } = position;
 
       // Node circle
@@ -174,6 +169,19 @@ const ClusterTopology: React.FC = () => {
       ctx.textAlign = 'center';
       const nodeName = node.metadata?.name || 'Unknown';
       ctx.fillText(nodeName.substring(0, 10) + '...', x, y - 25);
+      
+      // Pod count badge
+      if (podCount > 0) {
+        ctx.fillStyle = '#1976d2';
+        ctx.beginPath();
+        ctx.arc(x + 15, y - 15, 10, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(podCount.toString(), x + 15, y - 11);
+      }
     });
   };
 
@@ -254,6 +262,9 @@ const ClusterTopology: React.FC = () => {
               <Typography variant="h6" gutterBottom>
                 Node Topology View
               </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                Click on any node to view detailed information. Blue badges show the number of running pods.
+              </Typography>
               <Paper 
                 elevation={1} 
                 sx={{ 
@@ -275,33 +286,54 @@ const ClusterTopology: React.FC = () => {
                   onClick={handleNodeClick}
                 />
               </Paper>
-              <Box mt={2} display="flex" gap={2}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Box
-                    width={16}
-                    height={16}
-                    borderRadius="50%"
-                    bgcolor="#4caf50"
-                  />
-                  <Typography variant="body2">Healthy</Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Box
-                    width={16}
-                    height={16}
-                    borderRadius="50%"
-                    bgcolor="#ff9800"
-                  />
-                  <Typography variant="body2">Warning</Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Box
-                    width={16}
-                    height={16}
-                    borderRadius="50%"
-                    bgcolor="#f44336"
-                  />
-                  <Typography variant="body2">Error</Typography>
+              <Box mt={2}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Node Status Legend
+                </Typography>
+                <Box display="flex" gap={3} flexWrap="wrap">
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Box
+                      width={16}
+                      height={16}
+                      borderRadius="50%"
+                      bgcolor="#4caf50"
+                    />
+                    <Typography variant="body2">Healthy</Typography>
+                  </Box>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Box
+                      width={16}
+                      height={16}
+                      borderRadius="50%"
+                      bgcolor="#ff9800"
+                    />
+                    <Typography variant="body2">Warning</Typography>
+                  </Box>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Box
+                      width={16}
+                      height={16}
+                      borderRadius="50%"
+                      bgcolor="#f44336"
+                    />
+                    <Typography variant="body2">Error</Typography>
+                  </Box>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Box
+                      width={16}
+                      height={16}
+                      borderRadius="50%"
+                      bgcolor="#1976d2"
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      <Typography variant="caption" color="white" fontSize={10}>
+                        #
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2">Pod Count</Typography>
+                  </Box>
                 </Box>
               </Box>
             </CardContent>
@@ -411,6 +443,21 @@ const ClusterTopology: React.FC = () => {
                     <ListItemText
                       primary="Kubelet Version"
                       secondary={selectedNode.status.nodeInfo.kubeletVersion}
+                    />
+                  </ListItem>
+                </List>
+
+                <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                  Resource Usage
+                </Typography>
+                <List dense>
+                  <ListItem>
+                    <ListItemIcon>
+                      <ComputerIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Running Pods"
+                      secondary={topologyNodes.find(n => n.node.metadata?.name === selectedNode.metadata?.name)?.podCount || 0}
                     />
                   </ListItem>
                 </List>

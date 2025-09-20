@@ -89,6 +89,33 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 
 ### Development Setup
 
+#### Option 1: Using Task Runner (Recommended)
+
+This project includes a [Taskfile](https://taskfile.dev/) for streamlined development workflow management:
+
+1. **Install Task** (if not already installed):
+   ```bash
+   # macOS
+   brew install go-task/tap/go-task
+   
+   # Linux/macOS
+   sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d
+   ```
+
+2. **Quick start with Task**:
+   ```bash
+   git clone <repository-url>
+   cd kubernetes-admin-ui
+   
+   # Fresh development start (installs deps + starts dev servers)
+   task fresh
+   
+   # Show all available tasks
+   task --list
+   ```
+
+#### Option 2: Traditional npm commands
+
 1. **Clone and install dependencies**
    ```bash
    git clone <repository-url>
@@ -134,6 +161,122 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 - Select "Token Auth" tab
 - Enter your service account token
 - Click "Connect to Cluster"
+
+## Docker Development Setup
+
+For a fully containerized development environment with hot-reload support:
+
+### Prerequisites
+- **Docker** and **Docker Compose** installed
+- **Access to a Kubernetes cluster** with kubeconfig available
+- **kubectl configured** with appropriate RBAC permissions
+
+### Quick Start with Docker
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd kubernetes-admin-ui
+   ```
+
+2. **Start the development environment**
+   ```bash
+   # Start both frontend and backend services
+   docker-compose up -d
+   
+   # View logs
+   docker-compose logs -f
+   
+   # Start with file watching (Docker Compose v2.22+)
+   docker-compose up --watch
+   ```
+
+3. **Access the application**
+   - **Frontend**: http://localhost:5173
+   - **Backend API**: http://localhost:3001
+   - **Health Check**: http://localhost:3001/api/health
+
+4. **Optional services**
+   ```bash
+   # Enable Redis caching
+   docker-compose --profile cache up -d
+   
+   # Enable Prometheus monitoring
+   docker-compose --profile monitoring up -d
+   
+   # Access Prometheus: http://localhost:9090
+   ```
+
+### Docker Development Commands
+
+```bash
+# Build images
+docker-compose build
+
+# Rebuild specific service
+docker-compose build frontend
+docker-compose build backend
+
+# View service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f frontend
+docker-compose logs -f backend
+
+# Execute commands in containers
+docker-compose exec frontend npm run test
+docker-compose exec backend npm run diagnostics
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
+```
+
+### Development Features
+
+- **🔄 Hot Reload**: File changes automatically trigger rebuilds
+- **📁 Volume Mounts**: Source code is mounted for live editing
+- **🔍 Health Checks**: All services include health monitoring
+- **🌐 Networking**: Services communicate via Docker network
+- **📊 Monitoring**: Optional Prometheus integration
+- **💾 Persistence**: Redis data and Prometheus metrics persist across restarts
+
+### Kubernetes Configuration
+
+The Docker setup mounts your local kubeconfig:
+- Host: `~/.kube/config` → Container: `/home/node/.kube/config`
+- Ensure your kubeconfig is accessible and contains the correct context
+- The backend service runs as non-root user for security
+
+### Troubleshooting Docker Development
+
+**Permission Issues:**
+```bash
+# Fix kubeconfig permissions
+chmod 600 ~/.kube/config
+
+# Check container user
+docker-compose exec backend whoami
+```
+
+**Network Connectivity:**
+```bash
+# Test backend health
+curl http://localhost:3001/api/health
+
+# Check service connectivity
+docker-compose exec frontend curl http://backend:3001/api/health
+```
+
+**File Watching Issues:**
+```bash
+# For file watching issues on some systems
+export CHOKIDAR_USEPOLLING=true
+docker-compose up
+```
 
 ## Production Deployment
 
@@ -326,6 +469,20 @@ We follow modern development practices:
 4. Run tests: `npm run test`
 5. Commit with conventional commit format
 6. Push and create a Pull Request
+
+## Task Runner
+
+This project includes a comprehensive Taskfile for development workflow management. See [docs/TASKFILE_GUIDE.md](docs/TASKFILE_GUIDE.md) for detailed usage instructions.
+
+**Common Task commands:**
+```bash
+task fresh       # Fresh development start
+task dev         # Start development servers  
+task clean:dev   # Clean and restart
+task ports       # Check port usage
+task health      # Check application health
+task --list      # Show all available tasks
+```
 
 ## License
 

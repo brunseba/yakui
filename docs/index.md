@@ -104,9 +104,47 @@ src/
 3. Follow conventional commits: `feat(scope): description`
 4. Submit a pull request
 
+## Documentation Structure
+
+### 📁 Organization
+
+Documentation is organized into the following categories:
+
+#### 🔧 Development
+- [RBAC Development Complete](./development/RBAC_DEVELOPMENT_COMPLETE.md) - RBAC feature implementation summary
+- [RBAC Manager](./development/RBAC_MANAGER.md) - RBAC management functionality
+- [RBAC Detail View](./development/RBAC_DETAIL_VIEW_README.md) - Detailed RBAC resource views
+- [Kubernetes Resource Manager](./development/KUBERNETES_RESOURCE_MANAGER_SUMMARY.md) - Resource management features
+
+#### 🔒 Security
+- [Security Assessment](./security/SECURITY_ASSESSMENT.md) - Security analysis and vulnerabilities
+- [Security Remediation Plan](./security/SECURITY_REMEDIATION_PLAN.md) - Security improvements roadmap
+- [Hardening Mitigation Guide](./security/HARDENING_MITIGATION_GUIDE.md) - Security hardening instructions
+
+#### 🚀 Deployment
+- [Production Deployment](./deployment/PRODUCTION_DEPLOYMENT.md) - Production deployment guide
+- [Docker Dependencies](./deployment/DOCKER_DEPENDENCIES.md) - Container setup and dependencies
+
+#### 📚 Guides
+- [Git Workflow](./guides/GIT_WORKFLOW.md) - Development workflow and git conventions
+- [Taskfile Guide](./guides/TASKFILE_GUIDE.md) - Task automation with Taskfile
+- [Phase 1 Week 1 Quickstart](./guides/PHASE1_WEEK1_QUICKSTART.md) - Getting started guide
+
+#### 🐛 Fixes & Improvements
+- [API Base URL Fix](./fixes/API_BASE_URL_FIX_SUMMARY.md) - API URL configuration fixes
+- [CRD Details Fix](./fixes/CRD_DETAILS_FIX_SUMMARY.md) - Custom Resource Definition fixes
+- [CRD Detail Component](./fixes/CRD_DETAIL_COMPONENT_SUMMARY.md) - CRD detail view implementation
+- [Icon Fix](./fixes/ICON_FIX_SUMMARY.md) - UI icon fixes and improvements
+
+#### 📋 Project Files
+- [Changelog](./CHANGELOG.md) - Release notes and version history
+- [Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md) - Development roadmap
+- [Project Completion](./PROJECT_COMPLETION.md) - Project milestones and completion status
+- [Samples](./samples.md) - Code examples and samples
+
 ## Changelog
 
-See [CHANGELOG.md](../CHANGELOG.md) for detailed release notes.
+See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes.
 
 ## License
 
@@ -115,5 +153,5 @@ This project is licensed under the MIT License.
 ---
 
 **Current Version**: v1.1.0  
-**Last Updated**: 2025-09-19  
+**Last Updated**: 2025-09-20  
 **Kubernetes Compatibility**: v1.24+

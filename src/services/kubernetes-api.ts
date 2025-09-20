@@ -403,64 +403,316 @@ class KubernetesApiService {
     }
   }
 
+  async createResource(type: string, manifest: any, namespace?: string): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Creating ${type} in namespace ${namespace || manifest?.metadata?.namespace || 'default'}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/resources/${type}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ namespace, manifest }),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to create ${type}`);
+      }
+      const result = await response.json();
+      console.log(`[K8s API] Created ${type}:`, result?.resource?.metadata?.name || 'unknown');
+      return result.resource;
+    } catch (error) {
+      console.error(`[K8s API] Failed to create ${type}:`, error);
+      throw error;
+    }
+  }
+
   async getServiceAccounts(namespace?: string): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
-    const result = handleStubImplementation(
-      'Service Accounts',
-      fallbackValues.emptyResponse.serviceAccounts
-    );
+    console.log(`[K8s API] Fetching service accounts${namespace ? ` in namespace: ${namespace}` : ''}...`);
     
-    console.log('[K8s API] Service accounts:', result.fallback ? 'Stub implementation' : 'Real data');
-    return result.data;
+    try {
+      const url = namespace 
+        ? `${this.apiBaseUrl}/rbac/serviceaccounts?namespace=${namespace}`
+        : `${this.apiBaseUrl}/rbac/serviceaccounts`;
+      
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch service accounts');
+      }
+      
+      const serviceAccounts = await response.json();
+      console.log(`[K8s API] Retrieved ${serviceAccounts.length} service accounts`);
+      return serviceAccounts;
+    } catch (error) {
+      console.error('[K8s API] Failed to get service accounts:', error);
+      throw error;
+    }
+  }
+
+  async createServiceAccount(serviceAccount: any): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Creating service account: ${serviceAccount.metadata?.name}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/rbac/serviceaccounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serviceAccount),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create service account');
+      }
+      
+      const result = await response.json();
+      console.log(`[K8s API] Created service account: ${serviceAccount.metadata?.name}`);
+      return result;
+    } catch (error) {
+      console.error('[K8s API] Failed to create service account:', error);
+      throw error;
+    }
+  }
+
+  async deleteServiceAccount(name: string, namespace: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Deleting service account: ${namespace}/${name}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/rbac/serviceaccounts/${namespace}/${name}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete service account');
+      }
+      
+      console.log(`[K8s API] Deleted service account: ${namespace}/${name}`);
+    } catch (error) {
+      console.error('[K8s API] Failed to delete service account:', error);
+      throw error;
+    }
   }
 
   async getRoles(namespace?: string): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
-    const result = handleStubImplementation(
-      'Roles',
-      fallbackValues.emptyResponse.roles
-    );
+    console.log(`[K8s API] Fetching roles${namespace ? ` in namespace: ${namespace}` : ''}...`);
     
-    console.log('[K8s API] Roles:', result.fallback ? 'Stub implementation' : 'Real data');
-    return result.data;
+    try {
+      const url = namespace 
+        ? `${this.apiBaseUrl}/rbac/roles?namespace=${namespace}`
+        : `${this.apiBaseUrl}/rbac/roles`;
+      
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch roles');
+      }
+      
+      const roles = await response.json();
+      console.log(`[K8s API] Retrieved ${roles.length} roles`);
+      return roles;
+    } catch (error) {
+      console.error('[K8s API] Failed to get roles:', error);
+      throw error;
+    }
   }
 
   async getClusterRoles(): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
-    const result = handleStubImplementation(
-      'Cluster Roles',
-      fallbackValues.emptyResponse.clusterRoles
-    );
+    console.log('[K8s API] Fetching cluster roles...');
     
-    console.log('[K8s API] Cluster roles:', result.fallback ? 'Stub implementation' : 'Real data');
-    return result.data;
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/rbac/clusterroles`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch cluster roles');
+      }
+      
+      const clusterRoles = await response.json();
+      console.log(`[K8s API] Retrieved ${clusterRoles.length} cluster roles`);
+      return clusterRoles;
+    } catch (error) {
+      console.error('[K8s API] Failed to get cluster roles:', error);
+      throw error;
+    }
+  }
+
+  async createRole(role: any): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    const isClusterRole = !role.metadata?.namespace;
+    console.log(`[K8s API] Creating ${isClusterRole ? 'cluster role' : 'role'}: ${role.metadata?.name}`);
+    
+    try {
+      const endpoint = isClusterRole ? 'clusterroles' : 'roles';
+      const response = await fetch(`${this.apiBaseUrl}/rbac/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(role),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to create ${isClusterRole ? 'cluster role' : 'role'}`);
+      }
+      
+      const result = await response.json();
+      console.log(`[K8s API] Created ${isClusterRole ? 'cluster role' : 'role'}: ${role.metadata?.name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to create ${isClusterRole ? 'cluster role' : 'role'}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteRole(name: string, namespace?: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    const isClusterRole = !namespace;
+    console.log(`[K8s API] Deleting ${isClusterRole ? 'cluster role' : 'role'}: ${namespace ? namespace + '/' : ''}${name}`);
+    
+    try {
+      const endpoint = isClusterRole ? 'clusterroles' : 'roles';
+      const url = isClusterRole 
+        ? `${this.apiBaseUrl}/rbac/${endpoint}/${name}`
+        : `${this.apiBaseUrl}/rbac/${endpoint}/${namespace}/${name}`;
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to delete ${isClusterRole ? 'cluster role' : 'role'}`);
+      }
+      
+      console.log(`[K8s API] Deleted ${isClusterRole ? 'cluster role' : 'role'}: ${name}`);
+    } catch (error) {
+      console.error(`[K8s API] Failed to delete ${isClusterRole ? 'cluster role' : 'role'}:`, error);
+      throw error;
+    }
   }
 
   async getRoleBindings(namespace?: string): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
-    const result = handleStubImplementation(
-      'Role Bindings',
-      fallbackValues.emptyResponse.roleBindings
-    );
+    console.log(`[K8s API] Fetching role bindings${namespace ? ` in namespace: ${namespace}` : ''}...`);
     
-    console.log('[K8s API] Role bindings:', result.fallback ? 'Stub implementation' : 'Real data');
-    return result.data;
+    try {
+      const url = namespace 
+        ? `${this.apiBaseUrl}/rbac/rolebindings?namespace=${namespace}`
+        : `${this.apiBaseUrl}/rbac/rolebindings`;
+      
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch role bindings');
+      }
+      
+      const roleBindings = await response.json();
+      console.log(`[K8s API] Retrieved ${roleBindings.length} role bindings`);
+      return roleBindings;
+    } catch (error) {
+      console.error('[K8s API] Failed to get role bindings:', error);
+      throw error;
+    }
   }
 
   async getClusterRoleBindings(): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
-    const result = handleStubImplementation(
-      'Cluster Role Bindings',
-      fallbackValues.emptyResponse.clusterRoleBindings
-    );
+    console.log('[K8s API] Fetching cluster role bindings...');
     
-    console.log('[K8s API] Cluster role bindings:', result.fallback ? 'Stub implementation' : 'Real data');
-    return result.data;
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/rbac/clusterrolebindings`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch cluster role bindings');
+      }
+      
+      const clusterRoleBindings = await response.json();
+      console.log(`[K8s API] Retrieved ${clusterRoleBindings.length} cluster role bindings`);
+      return clusterRoleBindings;
+    } catch (error) {
+      console.error('[K8s API] Failed to get cluster role bindings:', error);
+      throw error;
+    }
+  }
+
+  async createRoleBinding(roleBinding: any): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    const isClusterRoleBinding = !roleBinding.metadata?.namespace;
+    console.log(`[K8s API] Creating ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}: ${roleBinding.metadata?.name}`);
+    
+    try {
+      const endpoint = isClusterRoleBinding ? 'clusterrolebindings' : 'rolebindings';
+      const response = await fetch(`${this.apiBaseUrl}/rbac/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(roleBinding),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to create ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}`);
+      }
+      
+      const result = await response.json();
+      console.log(`[K8s API] Created ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}: ${roleBinding.metadata?.name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to create ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteRoleBinding(name: string, namespace?: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    const isClusterRoleBinding = !namespace;
+    console.log(`[K8s API] Deleting ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}: ${namespace ? namespace + '/' : ''}${name}`);
+    
+    try {
+      const endpoint = isClusterRoleBinding ? 'clusterrolebindings' : 'rolebindings';
+      const url = isClusterRoleBinding 
+        ? `${this.apiBaseUrl}/rbac/${endpoint}/${name}`
+        : `${this.apiBaseUrl}/rbac/${endpoint}/${namespace}/${name}`;
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to delete ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}`);
+      }
+      
+      console.log(`[K8s API] Deleted ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}: ${name}`);
+    } catch (error) {
+      console.error(`[K8s API] Failed to delete ${isClusterRoleBinding ? 'cluster role binding' : 'role binding'}:`, error);
+      throw error;
+    }
   }
 
   async getEvents(namespace?: string): Promise<ClusterEvent[]> {
@@ -485,15 +737,6 @@ class KubernetesApiService {
       console.error('[K8s API] Failed to get events:', error);
       throw error;
     }
-  }
-
-  async getPodLogs(namespace: string, podName: string, containerName?: string): Promise<string> {
-    if (!this.isInitialized) throw new Error('Service not initialized');
-    
-    console.log(`[K8s API] Getting logs for pod ${podName} in namespace ${namespace}`);
-    
-    // This would need to be implemented in the backend
-    return `Logs for pod ${podName} in namespace ${namespace} - not implemented yet`;
   }
 
   async getResourceMetrics(namespace?: string): Promise<ResourceMetrics[]> {
@@ -571,6 +814,30 @@ class KubernetesApiService {
     }
   }
 
+  async getPodsByNode(nodeName: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+    
+    console.log(`[K8s API] Fetching pods for node: ${nodeName}`);
+    
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/nodes/${nodeName}/pods`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch pods for node');
+      }
+      
+      const pods = await response.json();
+      console.log(`[K8s API] Retrieved ${pods.length} pods for node ${nodeName}`);
+      return pods;
+    } catch (error) {
+      console.error(`[K8s API] Failed to get pods for node ${nodeName}:`, error);
+      // Return empty array as fallback for topology view
+      return [];
+    }
+  }
+
   async getConfigMaps(namespace: string): Promise<any[]> {
     if (!this.isInitialized) throw new Error('Service not initialized');
     
@@ -644,8 +911,290 @@ class KubernetesApiService {
     return {
       getCurrentContext: () => config.cluster.defaultContext,
       getCurrentUser: () => ({ name: 'kind-user' }),
-      getCurrentCluster: () => ({ server: maskServerUrl('https://127.0.0.1:6443') }),
+      getCurrentCluster: () => ({ server: maskServerUrl('https://*********:6443') }),
     };
+  }
+
+  // === HELM METHODS ===
+
+  async getHelmRepositories(): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log('[K8s API] Fetching Helm repositories...');
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/repositories`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch Helm repositories');
+      }
+
+      const repositories = await response.json();
+      console.log(`[K8s API] Retrieved ${repositories.length} Helm repositories`);
+      return repositories;
+    } catch (error) {
+      console.error('[K8s API] Failed to get Helm repositories:', error);
+      throw error;
+    }
+  }
+
+  async addHelmRepository(name: string, url: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Adding Helm repository: ${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/repositories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, url }),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add Helm repository');
+      }
+
+      console.log(`[K8s API] Added Helm repository: ${name}`);
+    } catch (error) {
+      console.error(`[K8s API] Failed to add Helm repository ${name}:`, error);
+      throw error;
+    }
+  }
+
+  async removeHelmRepository(name: string): Promise<void> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Removing Helm repository: ${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/repositories/${name}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to remove Helm repository');
+      }
+
+      console.log(`[K8s API] Removed Helm repository: ${name}`);
+    } catch (error) {
+      console.error(`[K8s API] Failed to remove Helm repository ${name}:`, error);
+      throw error;
+    }
+  }
+
+  async searchHelmCharts(query: string = '', repo?: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Searching Helm charts: ${query}`);
+
+    try {
+      const url = new URL(`${this.apiBaseUrl}/helm/charts/search`);
+      if (query) url.searchParams.set('query', query);
+      if (repo) url.searchParams.set('repo', repo);
+
+      const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to search Helm charts');
+      }
+
+      const charts = await response.json();
+      console.log(`[K8s API] Found ${charts.length} Helm charts`);
+      return charts;
+    } catch (error) {
+      console.error('[K8s API] Failed to search Helm charts:', error);
+      throw error;
+    }
+  }
+
+  async getHelmChartInfo(repo: string, chart: string): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Getting Helm chart info: ${repo}/${chart}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/charts/${repo}/${chart}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get Helm chart info');
+      }
+
+      const chartInfo = await response.json();
+      console.log(`[K8s API] Retrieved chart info: ${repo}/${chart}`);
+      return chartInfo;
+    } catch (error) {
+      console.error(`[K8s API] Failed to get Helm chart info ${repo}/${chart}:`, error);
+      throw error;
+    }
+  }
+
+  async getHelmReleases(namespace?: string): Promise<any[]> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Fetching Helm releases${namespace ? ` in ${namespace}` : ''}...`);
+
+    try {
+      const url = new URL(`${this.apiBaseUrl}/helm/releases`);
+      if (namespace) url.searchParams.set('namespace', namespace);
+
+      const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch Helm releases');
+      }
+
+      const releases = await response.json();
+      console.log(`[K8s API] Retrieved ${releases.length} Helm releases`);
+      return releases;
+    } catch (error) {
+      console.error('[K8s API] Failed to get Helm releases:', error);
+      throw error;
+    }
+  }
+
+  async getHelmReleaseDetails(namespace: string, name: string): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Getting Helm release details: ${namespace}/${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/releases/${namespace}/${name}`, {
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get Helm release details');
+      }
+
+      const details = await response.json();
+      console.log(`[K8s API] Retrieved release details: ${namespace}/${name}`);
+      return details;
+    } catch (error) {
+      console.error(`[K8s API] Failed to get Helm release details ${namespace}/${name}:`, error);
+      throw error;
+    }
+  }
+
+  async installHelmChart(params: {
+    name: string;
+    chart: string;
+    namespace: string;
+    values?: string;
+    version?: string;
+  }): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Installing Helm chart: ${params.chart} as ${params.name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/releases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(120000) // 2 minute timeout for installations
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to install Helm chart');
+      }
+
+      const result = await response.json();
+      console.log(`[K8s API] Installed Helm chart: ${params.name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to install Helm chart ${params.chart}:`, error);
+      throw error;
+    }
+  }
+
+  async upgradeHelmRelease(namespace: string, name: string, params: {
+    chart?: string;
+    values?: string;
+    version?: string;
+  }): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Upgrading Helm release: ${namespace}/${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/releases/${namespace}/${name}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(120000)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to upgrade Helm release');
+      }
+
+      const result = await response.json();
+      console.log(`[K8s API] Upgraded Helm release: ${namespace}/${name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to upgrade Helm release ${namespace}/${name}:`, error);
+      throw error;
+    }
+  }
+
+  async uninstallHelmRelease(namespace: string, name: string): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Uninstalling Helm release: ${namespace}/${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/releases/${namespace}/${name}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to uninstall Helm release');
+      }
+
+      const result = await response.json();
+      console.log(`[K8s API] Uninstalled Helm release: ${namespace}/${name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to uninstall Helm release ${namespace}/${name}:`, error);
+      throw error;
+    }
+  }
+
+  async rollbackHelmRelease(namespace: string, name: string, revision?: number): Promise<any> {
+    if (!this.isInitialized) throw new Error('Service not initialized');
+
+    console.log(`[K8s API] Rolling back Helm release: ${namespace}/${name}`);
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/helm/releases/${namespace}/${name}/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision }),
+        signal: AbortSignal.timeout(config.api.timeout)
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to rollback Helm release');
+      }
+
+      const result = await response.json();
+      console.log(`[K8s API] Rolled back Helm release: ${namespace}/${name}`);
+      return result;
+    } catch (error) {
+      console.error(`[K8s API] Failed to rollback Helm release ${namespace}/${name}:`, error);
+      throw error;
+    }
   }
 }
 
