@@ -17,6 +17,11 @@ deployment/
 ├── kub/                      # ☸️ Kubernetes deployment manifests
 │   └── k8s-deployment.yaml   # Main Kubernetes deployment
 │
+├── monitoring/               # 📊 Monitoring and observability
+│   ├── prometheus.yml        # Prometheus configuration
+│   ├── k8s-monitoring.yaml   # Kubernetes monitoring stack
+│   └── alert.rules          # Prometheus alert rules
+│
 └── README.md                 # This file
 ```
 
@@ -38,11 +43,15 @@ docker compose up --build -d
 ```bash
 cd deployment/kub/
 kubectl apply -f .
+
+# Optional: Add monitoring stack
+kubectl apply -f ../monitoring/k8s-monitoring.yaml
 ```
 - ✅ Production-ready
 - ✅ High availability
 - ✅ Auto-scaling capabilities
 - ✅ Native cluster integration
+- ✅ Comprehensive monitoring
 
 ## 🏗️ Architecture Overview
 
@@ -58,10 +67,11 @@ kubectl apply -f .
 - **Container**: Node.js API server
 - **Features**: Kubernetes API proxy, authentication
 
-### 📊 **Monitoring** (Optional)
-- **Technology**: Prometheus + Grafana
-- **Port**: `9090` (Prometheus)
-- **Features**: Metrics collection, dashboards
+### 📊 **Monitoring** (Integrated)
+- **Technology**: Prometheus + Grafana + Alertmanager
+- **Ports**: `9090` (Prometheus), `3000` (Grafana)
+- **Features**: Metrics collection, dashboards, alerting
+- **Coverage**: Application, infrastructure, and security metrics
 
 ## 🎯 Deployment Scenarios
 
@@ -180,6 +190,7 @@ kubectl describe pod <pod-name>
 
 - **[Docker Deployment Guide](./docker/README.md)** - Detailed Docker setup
 - **[Kubernetes Deployment Guide](./kub/README.md)** - K8s configuration details
+- **[Monitoring Guide](./monitoring/README.md)** - Observability and alerting setup
 - **[Production Deployment](../docs/deployment/PRODUCTION_DEPLOYMENT.md)** - Production best practices
 - **[Security Guide](../docs/security/)** - Security hardening instructions
 

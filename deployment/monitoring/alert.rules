@@ -1,0 +1,174 @@
+groups:
+  - name: yakui-application-alerts
+    rules:
+      # High Error Rate Alert
+      - alert: YakUIHighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: yakui
+        annotations:
+          summary: "High error rate detected in YakUI"
+          description: "YakUI is experiencing {{ $value }} errors per second (>5%)"
+          runbook_url: "https://runbooks.example.com/yakui-high-error-rate"
+
+      # High Response Time Alert
+      - alert: YakUIHighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 3m
+        labels:
+          severity: warning
+          service: yakui
+        annotations:
+          summary: "High response time in YakUI"
+          description: "95th percentile response time is {{ $value }}s (>2s)"
+
+      # Backend API Down
+      - alert: YakUIBackendDown
+        expr: up{job="yakui-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: yakui-backend
+        annotations:
+          summary: "YakUI Backend API is down"
+          description: "YakUI Backend API has been down for more than 1 minute"
+
+      # Frontend Down
+      - alert: YakUIFrontendDown
+        expr: up{job="yakui-frontend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: yakui-frontend
+        annotations:
+          summary: "YakUI Frontend is down"
+          description: "YakUI Frontend has been down for more than 1 minute"
+
+      # High Memory Usage
+      - alert: YakUIHighMemoryUsage
+        expr: (container_memory_usage_bytes{pod=~"yakui-.*"} / container_spec_memory_limit_bytes{pod=~"yakui-.*"}) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: yakui
+        annotations:
+          summary: "High memory usage in YakUI pod"
+          description: "Pod {{ $labels.pod }} memory usage is {{ $value }}% (>90%)"
+
+      # High CPU Usage
+      - alert: YakUIHighCPUUsage
+        expr: (rate(container_cpu_usage_seconds_total{pod=~"yakui-.*"}[5m]) / container_spec_cpu_quota{pod=~"yakui-.*"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: yakui
+        annotations:
+          summary: "High CPU usage in YakUI pod"
+          description: "Pod {{ $labels.pod }} CPU usage is {{ $value }}% (>80%)"
+
+  - name: yakui-infrastructure-alerts
+    rules:
+      # Kubernetes API Server Errors
+      - alert: KubernetesAPIServerErrors
+        expr: rate(apiserver_request_total{code=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: kubernetes-api
+        annotations:
+          summary: "Kubernetes API server errors"
+          description: "Kubernetes API server is returning {{ $value }} errors per second"
+
+      # Node Resource Pressure
+      - alert: NodeHighResourcePressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1 or kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: node
+        annotations:
+          summary: "Node resource pressure"
+          description: "Node {{ $labels.node }} is under resource pressure"
+
+      # Pod Crash Looping
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total{pod=~"yakui-.*"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: yakui
+        annotations:
+          summary: "Pod crash looping"
+          description: "Pod {{ $labels.pod }} is crash looping with {{ $value }} restarts"
+
+      # Persistent Volume Usage
+      - alert: PVCHighUsage
+        expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "High PVC usage"
+          description: "PVC {{ $labels.persistentvolumeclaim }} usage is {{ $value }}% (>85%)"
+
+  - name: yakui-performance-alerts
+    rules:
+      # Slow Database Queries
+      - alert: SlowDatabaseQueries
+        expr: rate(database_query_duration_seconds_sum[5m]) / rate(database_query_duration_seconds_count[5m]) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average database query time is {{ $value }}s (>1s)"
+
+      # Low Cache Hit Rate
+      - alert: LowCacheHitRate
+        expr: redis_cache_hits / (redis_cache_hits + redis_cache_misses) < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Redis cache hit rate is {{ $value }} (<80%)"
+
+      # High Request Rate
+      - alert: YakUIHighRequestRate
+        expr: rate(http_requests_total[5m]) > 1000
+        for: 2m
+        labels:
+          severity: info
+          service: yakui
+        annotations:
+          summary: "High request rate"
+          description: "YakUI is receiving {{ $value }} requests per second"
+
+  - name: yakui-security-alerts
+    rules:
+      # Too Many Failed Authentication Attempts
+      - alert: TooManyFailedAuths
+        expr: rate(auth_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "Too many failed authentication attempts"
+          description: "{{ $value }} failed authentication attempts per second (>10)"
+
+      # Suspicious Activity
+      - alert: SuspiciousAPIActivity
+        expr: rate(http_requests_total{status="403"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Suspicious API activity detected"
+          description: "{{ $value }} forbidden requests per second (>5)"
