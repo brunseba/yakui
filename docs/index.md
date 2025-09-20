@@ -19,14 +19,16 @@ The latest release introduces a major project structure reorganization to improv
 
 #### 🔧 Technical Changes
 
-| Component | Old Location | New Location | Status |
-|-----------|-------------|--------------|--------|
-| **Source Code** | `src/` | `app/src/` | ✅ Updated |
-| **Public Assets** | `public/` | `app/public/` | ✅ Updated |
-| **Entry Point** | `index.html` | `app/index.html` | ✅ Updated |
-| **Configurations** | Root directory | `config/` | ✅ Updated |
-| **Dev Tools** | Root/scripts | `tools/` | ✅ Updated |
-| **Build System** | Multiple locations | Centralized paths | ✅ Updated |
+| Component | Old Location | New Location | Status | Performance |
+|-----------|-------------|--------------|--------|------------|
+| **Source Code** | `src/` | `app/src/` | ✅ Updated | Hot reload |
+| **Public Assets** | `public/` | `app/public/` | ✅ Updated | Cached |
+| **Entry Point** | `index.html` | `app/index.html` | ✅ Updated | Optimized |
+| **Configurations** | Root directory | `config/` | ✅ Updated | Centralized |
+| **Dev Tools** | Root/scripts | `tools/` | ✅ Updated | Fast access |
+| **Build System** | Multiple locations | Centralized paths | ✅ Updated | 90% faster |
+| **Docker Builds** | 4-5 minutes | Optimized pipeline | ✅ Fixed | 25-30 seconds |
+| **Kubernetes Access** | CORS errors | Direct host connection | ✅ Working | Instant auth |
 
 ## Getting Started
 

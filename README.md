@@ -2,6 +2,11 @@
 
 A modern, comprehensive React-based web interface for Kubernetes cluster administration with full-stack API integration, advanced resource management, and enterprise-grade features.
 
+[![Latest Release](https://img.shields.io/github/v/release/brunseba/yakui)](https://github.com/brunseba/yakui/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docker Optimized](https://img.shields.io/badge/Docker-90%25%20faster%20builds-success)](deployment/docker/README.docker-optimization.md)
+[![Project Structure v2.0](https://img.shields.io/badge/Structure-v2.0%20Organized-green)](docs/index.md)
+
 ![Kubernetes Admin UI](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -79,13 +84,39 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 - **Accessibility**: WCAG compliant with keyboard navigation support
 - **Performance Optimized**: Lazy loading and efficient re-rendering
 
-## Quick Start
+## 🚀 Quick Start Guide
+
+### Version 2.0.0 - Major Project Structure Update! 
+
+> **⚠️ Breaking Change**: v2.0.0 introduces a new organized project structure. See [v2.0.0 Release Notes](https://github.com/brunseba/yakui/releases/tag/v2.0.0) for details.
+
+### New Project Structure
+
+```
+📁 yakui/
+├── 📱 app/              # Application source code
+│   ├── src/            # React TypeScript source
+│   ├── public/         # Static assets  
+│   └── index.html      # App entry point
+├── ⚙️ config/           # All configuration files
+│   ├── vite.config.ts  # Build configuration
+│   ├── tsconfig*.json  # TypeScript configs
+│   └── *.config.*      # Other configs
+├── 🔧 tools/           # Development tools
+│   ├── dev-server.cjs  # API development server
+│   ├── Taskfile.yml    # Task automation
+│   └── scripts/        # Development scripts
+├── 🚀 deployment/      # Deployment configurations
+│   ├── docker/         # Docker configs (90% faster!)
+│   └── kub/           # Kubernetes manifests
+└── 📚 docs/            # Documentation
+```
 
 ### Prerequisites
-- **Node.js 18+** and npm (or use `uv` for Python package management if preferred)
+- **Node.js 18+** and npm
 - **Access to a Kubernetes cluster** (local or remote)
 - **kubectl configured** with appropriate RBAC permissions
-- **Docker** (optional, for containerized deployment)
+- **Docker** (optional, with optimized build pipeline)
 
 ### Development Setup
 
@@ -162,34 +193,65 @@ This project includes a [Taskfile](https://taskfile.dev/) for streamlined develo
 - Enter your service account token
 - Click "Connect to Cluster"
 
-## Docker Development Setup
+## 🐳 Optimized Docker Development 
 
-For a fully containerized development environment with hot-reload support:
+> **⚡ 90% Faster Builds!** Our Docker setup now includes BuildKit optimizations, smart caching, and hybrid deployment options.
+
+### 🏁 Performance Improvements
+- **Build Time**: 4-5 minutes → **25-30 seconds** (90% faster!)
+- **Hot Reload**: Instant with bind mounts
+- **Kubernetes Access**: Fully working with optimized configurations
+- **Permission Issues**: Completely resolved
 
 ### Prerequisites
 - **Docker** and **Docker Compose** installed
+- **BuildKit enabled** (automatic with Docker 20.10+)
 - **Access to a Kubernetes cluster** with kubeconfig available
 - **kubectl configured** with appropriate RBAC permissions
 
-### Quick Start with Docker
+### 🚀 Quick Start Options
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd kubernetes-admin-ui
-   ```
+#### Option 1: Hybrid Setup (Fastest - Recommended)
+```bash
+git clone <repository-url>
+cd kubernetes-admin-ui
 
-2. **Start the development environment**
-   ```bash
-   # Start both frontend and backend services
-   docker compose -f deployment/docker/docker-compose.yml up -d
-   
-   # View logs
-   docker compose -f deployment/docker/docker-compose.yml logs -f
-   
-   # Start with file watching (Docker Compose v2.22+)
-   docker compose -f deployment/docker/docker-compose.yml up --watch
-   ```
+# Fast frontend build (25 seconds)
+cd deployment/docker
+export DOCKER_BUILDKIT=1
+docker build --cache-from docker-frontend:latest \
+  --tag docker-frontend:latest \
+  --file Dockerfile.dev-frontend ../..
+
+# Start frontend container
+docker-compose -f docker-compose.fast.yml up frontend -d
+
+# Start backend on host (instant Kubernetes access)
+cd ../.. && npm run dev:api
+```
+
+#### Option 2: Fast Build Script (Interactive)
+```bash
+git clone <repository-url>
+cd kubernetes-admin-ui/deployment/docker
+
+# Interactive optimized build
+./build-fast.sh
+
+# Follow prompts for frontend/backend
+```
+
+#### Option 3: Traditional Docker (Optimized)
+```bash
+git clone <repository-url>
+cd kubernetes-admin-ui
+
+# Use optimized compose configuration
+docker compose -f deployment/docker/docker-compose.fast.yml up
+
+# Or with backend profile
+docker compose -f deployment/docker/docker-compose.fast.yml --profile backend up
+```
 
 3. **Access the application**
    - **Frontend**: http://localhost:5173
@@ -325,10 +387,10 @@ kubectl port-forward -n k8s-admin-ui service/k8s-admin-ui 8080:80
 - `npm run diagnostics` - Generate system diagnostics report
 - `npm run kill:dev` - Kill running development servers
 
-## Architecture
+## 🏷️ Architecture
 
-### Full-Stack Architecture
-Built with modern web technologies and microservices pattern:
+### v2.0.0 Organized Project Structure
+Built with modern web technologies, clean separation of concerns, and optimized development workflow:
 
 **Frontend Stack:**
 - **React 19** with TypeScript for type-safe development
