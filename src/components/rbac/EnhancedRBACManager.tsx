@@ -53,7 +53,15 @@ import {
   Close as CloseIcon
 } from '@mui/icons-material';
 import { kubernetesService } from '../../services/kubernetes-api';
-import * as k8s from '@kubernetes/client-node';
+import type {
+  ServiceAccount,
+  Role,
+  ClusterRole,
+  RoleBinding,
+  ClusterRoleBinding,
+  RBACResourceType
+} from '../../types/kubernetes';
+import RBACResourceDetailDialog from './RBACResourceDetailDialog';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -103,11 +111,11 @@ interface CreateRoleForm {
 
 const EnhancedRBACManager: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
-  const [serviceAccounts, setServiceAccounts] = useState<k8s.V1ServiceAccount[]>([]);
-  const [roles, setRoles] = useState<k8s.V1Role[]>([]);
-  const [clusterRoles, setClusterRoles] = useState<k8s.V1ClusterRole[]>([]);
-  const [roleBindings, setRoleBindings] = useState<k8s.V1RoleBinding[]>([]);
-  const [clusterRoleBindings, setClusterRoleBindings] = useState<k8s.V1ClusterRoleBinding[]>([]);
+  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccount[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [clusterRoles, setClusterRoles] = useState<ClusterRole[]>([]);
+  const [roleBindings, setRoleBindings] = useState<RoleBinding[]>([]);
+  const [clusterRoleBindings, setClusterRoleBindings] = useState<ClusterRoleBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,7 +123,10 @@ const EnhancedRBACManager: React.FC = () => {
   const [createSADialogOpen, setCreateSADialogOpen] = useState(false);
   const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<k8s.V1Role | k8s.V1ClusterRole | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<Role | ClusterRole | null>(null);
+  const [selectedResource, setSelectedResource] = useState<any>(null);
+  const [selectedResourceType, setSelectedResourceType] = useState<RBACResourceType | null>(null);
 
   // Form states
   const [serviceAccountForm, setServiceAccountForm] = useState<CreateServiceAccountForm>({
@@ -250,7 +261,7 @@ const EnhancedRBACManager: React.FC = () => {
     }
   };
 
-  const generatePermissionsMatrix = (role: k8s.V1Role | k8s.V1ClusterRole): PermissionMatrix => {
+  const generatePermissionsMatrix = (role: Role | ClusterRole): PermissionMatrix => {
     const matrix: PermissionMatrix = {};
     
     role.rules?.forEach(rule => {
@@ -265,6 +276,12 @@ const EnhancedRBACManager: React.FC = () => {
     });
 
     return matrix;
+  };
+
+  const handleViewDetails = (resource: any, resourceType: RBACResourceType) => {
+    setSelectedResource(resource);
+    setSelectedResourceType(resourceType);
+    setDetailDialogOpen(true);
   };
 
   if (loading) {
@@ -403,7 +420,7 @@ const EnhancedRBACManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(sa, 'serviceaccount')}>
                           <VisibilityIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -474,6 +491,14 @@ const EnhancedRBACManager: React.FC = () => {
                       {formatAge(role.metadata?.creationTimestamp)}
                     </TableCell>
                     <TableCell>
+                      <Tooltip title="View Details">
+                        <IconButton 
+                          size="small"
+                          onClick={() => handleViewDetails(role, role.metadata?.namespace ? 'role' : 'clusterrole')}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="View Permissions">
                         <IconButton 
                           size="small"
@@ -550,7 +575,7 @@ const EnhancedRBACManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(binding, binding.metadata?.namespace ? 'rolebinding' : 'clusterrolebinding')}>
                           <VisibilityIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -802,6 +827,18 @@ const EnhancedRBACManager: React.FC = () => {
           <Button onClick={() => setPermissionsDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* RBAC Resource Detail Dialog */}
+      <RBACResourceDetailDialog
+        open={detailDialogOpen}
+        onClose={() => {
+          setDetailDialogOpen(false);
+          setSelectedResource(null);
+          setSelectedResourceType(null);
+        }}
+        resource={selectedResource}
+        resourceType={selectedResourceType!}
+      />
     </Box>
   );
 };

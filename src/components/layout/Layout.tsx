@@ -47,7 +47,8 @@ import {
   Tune as TuneIcon,
   DataObject as DataObjectIcon,
   Key as KeyIcon,
-  ViewModule as ViewModuleIcon
+  ViewModule as ViewModuleIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -144,6 +145,18 @@ const navigationItems: NavigationItem[] = [
     icon: <SecurityIcon />,
     children: [
       {
+        id: 'rbac-manager',
+        label: 'RBAC Manager',
+        icon: <SecurityIcon />,
+        path: '/rbac'
+      },
+      {
+        id: 'rbac-demo',
+        label: 'Detail View Demo',
+        icon: <VisibilityIcon />,
+        path: '/rbac/demo'
+      },
+      {
         id: 'users',
         label: 'Users & Service Accounts',
         icon: <SupervisorAccountIcon />,
@@ -210,6 +223,12 @@ const navigationItems: NavigationItem[] = [
         label: 'Compliance',
         icon: <PolicyIcon />,
         path: '/security/compliance'
+      },
+      {
+        id: 'security-status',
+        label: 'Security Status',
+        icon: <AssessmentIcon />,
+        path: '/security/status'
       }
     ]
   },

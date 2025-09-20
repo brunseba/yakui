@@ -28,7 +28,15 @@ import {
   Edit as EditIcon
 } from '@mui/icons-material';
 import { kubernetesService } from '../../services/kubernetes-api';
-import * as k8s from '@kubernetes/client-node';
+import type {
+  ServiceAccount,
+  Role,
+  ClusterRole,
+  RoleBinding,
+  ClusterRoleBinding,
+  RBACResourceType
+} from '../../types/kubernetes';
+import RBACResourceDetailDialog from './RBACResourceDetailDialog';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -54,13 +62,16 @@ function TabPanel(props: TabPanelProps) {
 
 const RBACManager: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
-  const [serviceAccounts, setServiceAccounts] = useState<k8s.V1ServiceAccount[]>([]);
-  const [roles, setRoles] = useState<k8s.V1Role[]>([]);
-  const [clusterRoles, setClusterRoles] = useState<k8s.V1ClusterRole[]>([]);
-  const [roleBindings, setRoleBindings] = useState<k8s.V1RoleBinding[]>([]);
-  const [clusterRoleBindings, setClusterRoleBindings] = useState<k8s.V1ClusterRoleBinding[]>([]);
+  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccount[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [clusterRoles, setClusterRoles] = useState<ClusterRole[]>([]);
+  const [roleBindings, setRoleBindings] = useState<RoleBinding[]>([]);
+  const [clusterRoleBindings, setClusterRoleBindings] = useState<ClusterRoleBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedResource, setSelectedResource] = useState<any>(null);
+  const [selectedResourceType, setSelectedResourceType] = useState<RBACResourceType | null>(null);
 
   useEffect(() => {
     fetchRBACData();
@@ -114,6 +125,12 @@ const RBACManager: React.FC = () => {
     } else {
       return `${diffHours}h`;
     }
+  };
+
+  const handleViewDetails = (resource: any, resourceType: RBACResourceType) => {
+    setSelectedResource(resource);
+    setSelectedResourceType(resourceType);
+    setDetailDialogOpen(true);
   };
 
   if (loading) {
@@ -242,7 +259,7 @@ const RBACManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(sa, 'serviceaccount')}>
                           <VisibilityIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -300,7 +317,7 @@ const RBACManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(role, role.metadata?.namespace ? 'role' : 'clusterrole')}>
                           <VisibilityIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -364,7 +381,7 @@ const RBACManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(binding, binding.metadata?.namespace ? 'rolebinding' : 'clusterrolebinding')}>
                           <VisibilityIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -376,6 +393,18 @@ const RBACManager: React.FC = () => {
           </TableContainer>
         </TabPanel>
       </Card>
+
+      {/* RBAC Resource Detail Dialog */}
+      <RBACResourceDetailDialog
+        open={detailDialogOpen}
+        onClose={() => {
+          setDetailDialogOpen(false);
+          setSelectedResource(null);
+          setSelectedResourceType(null);
+        }}
+        resource={selectedResource}
+        resourceType={selectedResourceType!}
+      />
     </Box>
   );
 };

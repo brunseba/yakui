@@ -18,7 +18,10 @@ import ResourceManager from './components/resources/ResourceManager';
 import CRDManager from './components/crds/CRDManager';
 import CRDDetail from './components/crds/CRDDetail';
 import RBACManager from './components/rbac/RBACManager';
+import ComprehensiveRBACManager from './components/rbac/ComprehensiveRBACManager';
+import RBACDemo from './components/rbac/RBACDemo';
 import SecurityDashboard from './components/SecurityDashboard';
+import SecurityComplianceStatus from './components/security/SecurityComplianceStatus';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import FeatureStatus from './components/common/FeatureStatus';
 import ComingSoon from './components/common/ComingSoon';
@@ -115,6 +118,8 @@ const AppRoutes: React.FC = () => {
         <Route path="/crds/:name" element={<CRDDetail />} />
         
         {/* RBAC routes */}
+        <Route path="/rbac" element={<ComprehensiveRBACManager />} />
+        <Route path="/rbac/demo" element={<RBACDemo />} />
         <Route path="/rbac/users" element={<RBACManager />} />
         <Route path="/rbac/roles" element={<RBACManager />} />
         <Route path="/rbac/bindings" element={<RBACManager />} />
@@ -125,9 +130,10 @@ const AppRoutes: React.FC = () => {
         <Route path="/monitoring/metrics" element={<div>Metrics Page (Coming Soon)</div>} />
         
         {/* Security routes */}
-        <Route path="/security" element={<SecurityDashboard />} />
-        <Route path="/security/scanning" element={<SecurityDashboard />} />
-        <Route path="/security/compliance" element={<SecurityDashboard />} />
+                <Route path="/security" element={<SecurityDashboard />} />
+                <Route path="/security/scanning" element={<SecurityDashboard />} />
+                <Route path="/security/compliance" element={<SecurityDashboard />} />
+                <Route path="/security/status" element={<SecurityComplianceStatus detailedView />} />
         
         {/* Storage routes */}
         <Route path="/storage/persistent-volumes" element={<div>Persistent Volumes Page (Coming Soon)</div>} />
