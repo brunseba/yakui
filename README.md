@@ -182,13 +182,13 @@ For a fully containerized development environment with hot-reload support:
 2. **Start the development environment**
    ```bash
    # Start both frontend and backend services
-   docker-compose up -d
+   docker compose -f deployment/docker/docker-compose.yml up -d
    
    # View logs
-   docker-compose logs -f
+   docker compose -f deployment/docker/docker-compose.yml logs -f
    
    # Start with file watching (Docker Compose v2.22+)
-   docker-compose up --watch
+   docker compose -f deployment/docker/docker-compose.yml up --watch
    ```
 
 3. **Access the application**
@@ -199,10 +199,10 @@ For a fully containerized development environment with hot-reload support:
 4. **Optional services**
    ```bash
    # Enable Redis caching
-   docker-compose --profile cache up -d
+   docker compose -f deployment/docker/docker-compose.yml --profile cache up -d
    
    # Enable Prometheus monitoring
-   docker-compose --profile monitoring up -d
+   docker compose -f deployment/docker/docker-compose.yml --profile monitoring up -d
    
    # Access Prometheus: http://localhost:9090
    ```
@@ -211,28 +211,28 @@ For a fully containerized development environment with hot-reload support:
 
 ```bash
 # Build images
-docker-compose build
+docker compose -f deployment/docker/docker-compose.yml build
 
 # Rebuild specific service
-docker-compose build frontend
-docker-compose build backend
+docker compose -f deployment/docker/docker-compose.yml build frontend
+docker compose -f deployment/docker/docker-compose.yml build backend
 
 # View service status
-docker-compose ps
+docker compose -f deployment/docker/docker-compose.yml ps
 
 # View logs
-docker-compose logs -f frontend
-docker-compose logs -f backend
+docker compose -f deployment/docker/docker-compose.yml logs -f frontend
+docker compose -f deployment/docker/docker-compose.yml logs -f backend
 
 # Execute commands in containers
-docker-compose exec frontend npm run test
-docker-compose exec backend npm run diagnostics
+docker compose -f deployment/docker/docker-compose.yml exec frontend npm run test
+docker compose -f deployment/docker/docker-compose.yml exec backend npm run diagnostics
 
 # Stop services
-docker-compose down
+docker compose -f deployment/docker/docker-compose.yml down
 
 # Stop and remove volumes
-docker-compose down -v
+docker compose -f deployment/docker/docker-compose.yml down -v
 ```
 
 ### Development Features
@@ -259,7 +259,7 @@ The Docker setup mounts your local kubeconfig:
 chmod 600 ~/.kube/config
 
 # Check container user
-docker-compose exec backend whoami
+docker compose -f deployment/docker/docker-compose.yml exec backend whoami
 ```
 
 **Network Connectivity:**
@@ -268,14 +268,14 @@ docker-compose exec backend whoami
 curl http://localhost:3001/api/health
 
 # Check service connectivity
-docker-compose exec frontend curl http://backend:3001/api/health
+docker compose -f deployment/docker/docker-compose.yml exec frontend curl http://backend:3001/api/health
 ```
 
 **File Watching Issues:**
 ```bash
 # For file watching issues on some systems
 export CHOKIDAR_USEPOLLING=true
-docker-compose up
+docker compose -f deployment/docker/docker-compose.yml up
 ```
 
 ## Production Deployment
@@ -283,7 +283,7 @@ docker-compose up
 ### Docker Build
 ```bash
 # Build the Docker image
-docker build -t k8s-admin-ui:latest .
+docker build -f deployment/docker/Dockerfile -t k8s-admin-ui:latest .
 
 # Run locally
 docker run -p 8080:8080 k8s-admin-ui:latest
@@ -292,7 +292,7 @@ docker run -p 8080:8080 k8s-admin-ui:latest
 ### Kubernetes Deployment
 ```bash
 # Deploy to Kubernetes
-kubectl apply -f k8s-deployment.yaml
+kubectl apply -f deployment/kub/k8s-deployment.yaml
 
 # Port forward for local access
 kubectl port-forward -n k8s-admin-ui service/k8s-admin-ui 8080:80

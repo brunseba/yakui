@@ -4,10 +4,10 @@ FROM node:18-alpine as dependencies
 WORKDIR /app
 
 # Copy package files first for better layer caching
-COPY package*.json ./
+COPY package.json package-lock.json ./
 
 # Install all dependencies (including dev for build)
-RUN npm ci --frozen-lockfile
+RUN npm ci
 
 # Build stage
 FROM node:18-alpine as builder

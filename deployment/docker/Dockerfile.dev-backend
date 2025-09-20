@@ -1,0 +1,35 @@
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install curl for healthchecks
+RUN apk add --no-cache curl
+
+# Copy package files for dependency installation
+COPY package.json package-lock.json ./
+
+# Install dependencies with exact versions from lock file
+RUN npm ci && \
+    npm cache clean --force
+
+# Copy source code
+COPY . .
+
+# Create .kube directory for the node user
+RUN mkdir -p /home/node/.kube && \
+    chown -R node:node /home/node/.kube && \
+    chown -R node:node /app
+
+# Switch to node user (created by node base image)
+USER node
+
+# Expose port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:3001/api/health || exit 1
+
+# Start development API server
+CMD ["npm", "run", "dev:api"]

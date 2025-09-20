@@ -1,0 +1,341 @@
+version: '3'
+
+vars:
+  PROJECT_NAME: kubernetes-admin-ui
+  NODE_VERSION: 18
+  FRONTEND_PORT: 5173
+  BACKEND_PORT: 3001
+  PWD:
+    sh: pwd
+
+includes:
+  docker:
+    taskfile: .taskfiles/docker.yml
+    dir: .
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # Development tasks
+  dev:
+    desc: Start full development environment (frontend + backend)
+    deps: [install]
+    cmds:
+      - npm run dev:full
+
+  dev:frontend:
+    desc: Start frontend development server only
+    deps: [install]
+    cmds:
+      - npm run dev
+
+  dev:backend:
+    desc: Start backend API server only
+    deps: [install]
+    cmds:
+      - npm run dev:api
+
+  dev:clean:
+    desc: Clean development environment and restart
+    cmds:
+      - task: clean:dev
+      - task: dev
+
+  # Installation and setup tasks
+  install:
+    desc: Install npm dependencies
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/.package-lock.json
+    cmds:
+      - npm ci
+
+  install:fresh:
+    desc: Fresh install of npm dependencies (removes node_modules first)
+    cmds:
+      - task: clean:deps
+      - npm install
+
+  # Cleaning tasks
+  clean:
+    desc: Clean all build artifacts and dependencies
+    cmds:
+      - task: clean:build
+      - task: clean:deps
+      - task: clean:cache
+      - task: clean:logs
+
+  clean:build:
+    desc: Clean build outputs
+    cmds:
+      - rm -rf dist/
+      - rm -rf build/
+      - rm -rf .next/
+      - rm -rf out/
+      - echo "✅ Build artifacts cleaned"
+
+  clean:deps:
+    desc: Clean node_modules and lock files
+    cmds:
+      - rm -rf node_modules/
+      - echo "✅ Dependencies cleaned"
+
+  clean:cache:
+    desc: Clean npm and build caches
+    cmds:
+      - npm cache clean --force
+      - rm -rf .cache/
+      - rm -rf .parcel-cache/
+      - rm -rf .vite/
+      - echo "✅ Caches cleaned"
+
+  clean:logs:
+    desc: Clean log files
+    cmds:
+      - rm -f *.log
+      - rm -f npm-debug.log*
+      - rm -f yarn-debug.log*
+      - rm -f yarn-error.log*
+      - rm -f pnpm-debug.log*
+      - echo "✅ Log files cleaned"
+
+  clean:dev:
+    desc: Clean development-specific files and processes
+    cmds:
+      - task: stop:dev
+      - task: clean:cache
+      - echo "✅ Development environment cleaned"
+
+  # Process management
+  stop:dev:
+    desc: Stop all development processes
+    cmds:
+      - echo "🔄 Stopping development processes..."
+      - 'pkill -f "{{.PWD}}/node_modules/.bin/vite" || true'
+      - 'pkill -f "{{.PWD}}/dev-server.cjs" || true'
+      - 'pkill -f "npm run dev" || true'
+      - 'pkill -f "npm run dev:api" || true'
+      - 'pkill -f "npm run dev:full" || true'
+      - 'pgrep -f "{{.PWD}}" | grep -E "(npm|node)" | xargs kill -TERM || true'
+      - 'sleep 2'
+      - 'lsof -ti:{{.FRONTEND_PORT}} | xargs kill -9 || true'
+      - 'lsof -ti:{{.BACKEND_PORT}} | xargs kill -9 || true'
+      - 'pkill -f "{{.PWD}}/node_modules/@esbuild" || true'
+      - 'pgrep -f "{{.PWD}}" | xargs kill -TERM || true'
+      - 'sleep 1'
+      - echo "✅ Development processes stopped"
+
+  stop:dev:force:
+    desc: Force stop all development processes (nuclear option)
+    cmds:
+      - echo "💣 Force stopping all development processes..."
+      - 'ps aux | grep -E "(npm|node|vite|esbuild)" | grep "{{.PWD}}" | awk "{print \$2}" | xargs kill -9 || true'
+      - 'lsof -ti:{{.FRONTEND_PORT}} | xargs kill -9 || true'
+      - 'lsof -ti:{{.BACKEND_PORT}} | xargs kill -9 || true'
+      - echo "✅ All development processes force stopped"
+
+  ps:dev:
+    desc: Show development-related processes
+    cmds:
+      - echo "=== Development processes ==="
+      - 'ps aux | grep -E "(npm|node|vite|esbuild)" | grep "{{.PWD}}" || echo "No development processes found"'
+      - echo ""
+      - echo "=== Port usage ==="
+      - task: ports
+
+  clean:defunct:
+    desc: Clean up defunct/zombie processes
+    cmds:
+      - echo "🧹 Cleaning up defunct processes..."
+      - echo "=== Current defunct processes ==="
+      - 'ps -eo pid,ppid,stat,comm | grep -E "Z.*<defunct>" || echo "No defunct processes found"'
+      - echo ""
+      - echo "💀 Terminating parent processes of zombies..."
+      - 'ps -eo pid,ppid,stat,comm | grep -E "Z.*<defunct>" | awk "{print \$2}" | sort -u | while read ppid; do echo "Terminating parent process: \$ppid"; kill -TERM \$ppid 2>/dev/null || true; sleep 1; kill -9 \$ppid 2>/dev/null || true; done'
+      - 'sleep 2'
+      - echo "🔍 Final verification..."
+      - 'ps -eo pid,ppid,stat,comm | grep -E "Z.*<defunct>" && echo "⚠️  Still have defunct processes" || echo "✅ All defunct processes cleaned up!"'
+      - echo "✅ Defunct process cleanup complete"
+
+  clean:system:
+    desc: System-wide cleanup of development-related processes
+    cmds:
+      - echo "🧹 Starting comprehensive system cleanup..."
+      - task: stop:dev:force
+      - task: clean:defunct
+      - task: clean:cache
+      - echo "🔄 Final system status..."
+      - task: ps:dev
+      - echo "✅ System cleanup complete!"
+
+  # Testing tasks
+  test:
+    desc: Run all tests
+    deps: [install]
+    cmds:
+      - npm run test
+
+  test:ui:
+    desc: Run tests with UI
+    deps: [install]
+    cmds:
+      - npm run test:ui
+
+  test:coverage:
+    desc: Run tests with coverage
+    deps: [install]
+    cmds:
+      - npm run test:coverage
+
+  test:clean:
+    desc: Clean test artifacts and run fresh tests
+    cmds:
+      - rm -rf coverage/
+      - rm -rf .nyc_output/
+      - task: test
+
+  # Build tasks
+  build:
+    desc: Build for production
+    deps: [install]
+    cmds:
+      - npm run build
+
+  build:clean:
+    desc: Clean build and rebuild
+    cmds:
+      - task: clean:build
+      - task: build
+
+  # Linting and formatting
+  lint:
+    desc: Run ESLint
+    deps: [install]
+    cmds:
+      - npm run lint
+
+  lint:fix:
+    desc: Run ESLint with auto-fix
+    deps: [install]
+    cmds:
+      - npx eslint . --fix
+
+  # Docker tasks
+  docker:up:
+    desc: Start Docker development environment
+    cmds:
+      - docker compose -f deployment/docker/docker-compose.yml up -d
+
+  docker:down:
+    desc: Stop Docker development environment
+    cmds:
+      - docker compose -f deployment/docker/docker-compose.yml down
+
+  docker:clean:
+    desc: Clean Docker development environment
+    cmds:
+      - docker compose -f deployment/docker/docker-compose.yml down --volumes --remove-orphans
+      - docker system prune -f
+      - echo "✅ Docker environment cleaned"
+
+  docker:rebuild:
+    desc: Rebuild Docker containers
+    cmds:
+      - task: docker:down
+      - docker compose -f deployment/docker/docker-compose.yml build --no-cache
+      - task: docker:up
+
+  docker:dev:clean:
+    desc: Clean and restart Docker development environment
+    cmds:
+      - task: docker:clean
+      - task: docker:up
+
+  # Health checks
+  health:
+    desc: Check application health
+    cmds:
+      - npm run health || echo "❌ Backend health check failed"
+
+  version:
+    desc: Check API version
+    cmds:
+      - npm run version || echo "❌ Version check failed"
+
+  status:
+    desc: Check overall application status
+    cmds:
+      - npm run status || echo "❌ Status check failed"
+
+  # Utility tasks
+  ports:
+    desc: Show processes using development ports
+    cmds:
+      - 'echo "=== Processes using port {{.FRONTEND_PORT}} (frontend) ==="'
+      - 'lsof -i:{{.FRONTEND_PORT}} || echo "No processes found"'
+      - echo ""
+      - 'echo "=== Processes using port {{.BACKEND_PORT}} (backend) ==="'
+      - 'lsof -i:{{.BACKEND_PORT}} || echo "No processes found"'
+
+  info:
+    desc: Show environment information
+    cmds:
+      - 'echo "=== {{.PROJECT_NAME}} Development Environment ==="'
+      - 'echo "Node.js version requirement: {{.NODE_VERSION}}+"'
+      - 'echo "Frontend port: {{.FRONTEND_PORT}}"'
+      - 'echo "Backend port: {{.BACKEND_PORT}}"'
+      - echo ""
+      - echo "=== System Information ==="
+      - 'echo "Node.js version: $(node --version)"'
+      - 'echo "npm version: $(npm --version)"'
+      - 'echo "Operating system: $(uname -s)"'
+      - echo ""
+      - echo "=== Project Status ==="
+      - 'echo "Dependencies installed: $([ -d node_modules ] && echo \"Yes\" || echo \"No\")"'
+      - 'echo "Build artifacts: $([ -d dist ] && echo \"Present\" || echo \"Not present\")"'
+
+  # Maintenance tasks
+  update:
+    desc: Update npm dependencies (interactive)
+    cmds:
+      - npm update
+      - npm audit fix || true
+      - echo "✅ Dependencies updated"
+
+  security:
+    desc: Run security audit
+    cmds:
+      - npm audit
+      - echo "✅ Security audit complete"
+
+  security:fix:
+    desc: Fix security vulnerabilities
+    cmds:
+      - npm audit fix
+      - echo "✅ Security fixes applied"
+
+  # Quick development workflows
+  fresh:
+    desc: Fresh development start (clean + install + dev)
+    cmds:
+      - task: clean:dev
+      - task: install:fresh
+      - task: dev
+
+  quick:
+    desc: Quick development start (stop processes + dev)
+    cmds:
+      - task: stop:dev
+      - task: dev
+
+  reset:
+    desc: Complete reset (clean everything + fresh install)
+    cmds:
+      - task: clean
+      - task: install:fresh
+      - echo "✅ Project reset complete"

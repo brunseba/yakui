@@ -1,0 +1,41 @@
+services:
+  frontend:
+    command: npm run dev
+    environment:
+      - CHOKIDAR_USEPOLLING=true  # Enable polling for file changes in containers
+      - WATCHPACK_POLLING=true    # Enable webpack polling
+    stdin_open: true
+    tty: true
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./public
+          target: /app/public
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+
+  backend:
+    command: npm run dev:api
+    environment:
+      - DEBUG=kubernetes-admin-ui:*
+      - LOG_LEVEL=debug
+    stdin_open: true
+    tty: true
+    develop:
+      watch:
+        - action: sync
+          path: ./dev-server.cjs
+          target: /app/dev-server.cjs
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+

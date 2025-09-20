@@ -1,0 +1,81 @@
+version: '3'
+
+vars:
+  COMPOSE_FILE: deployment/docker/docker-compose.yml
+
+tasks:
+  # Advanced Docker management
+  logs:
+    desc: Show Docker container logs
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} logs -f
+
+  logs:backend:
+    desc: Show backend container logs
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} logs -f backend
+
+  logs:frontend:
+    desc: Show frontend container logs
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} logs -f frontend
+
+  shell:backend:
+    desc: Open shell in backend container
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} exec backend /bin/sh
+
+  shell:frontend:
+    desc: Open shell in frontend container
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} exec frontend /bin/sh
+
+  inspect:
+    desc: Show container information
+    cmds:
+      - echo "=== Docker Compose Services ==="
+      - docker compose -f {{.COMPOSE_FILE}} ps
+      - echo ""
+      - echo "=== Docker Networks ==="
+      - docker network ls | grep yakui || echo "No yakui networks found"
+      - echo ""
+      - echo "=== Docker Volumes ==="
+      - docker volume ls | grep yakui || echo "No yakui volumes found"
+
+  clean:images:
+    desc: Clean unused Docker images
+    cmds:
+      - docker image prune -f
+      - echo "✅ Unused Docker images cleaned"
+
+  clean:all:
+    desc: Deep clean Docker environment (DESTRUCTIVE)
+    prompt: This will remove all Docker containers, images, volumes, and networks. Continue?
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} down --volumes --remove-orphans
+      - docker system prune -af --volumes
+      - echo "✅ Docker environment completely cleaned"
+
+  health:
+    desc: Check Docker container health
+    cmds:
+      - echo "=== Backend Health ==="
+      - docker compose -f {{.COMPOSE_FILE}} exec -T backend curl -f http://localhost:3001/api/health || echo "❌ Backend unhealthy"
+      - echo ""
+      - echo "=== Frontend Health ==="
+      - docker compose -f {{.COMPOSE_FILE}} exec -T frontend curl -f http://localhost:5173 || echo "❌ Frontend unhealthy"
+
+  restart:
+    desc: Restart Docker services
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} restart
+
+  restart:backend:
+    desc: Restart backend service only
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} restart backend
+
+  restart:frontend:
+    desc: Restart frontend service only
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} restart frontend

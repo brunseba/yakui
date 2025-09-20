@@ -59,6 +59,7 @@ import Editor from '@monaco-editor/react';
 import * as k8s from '@kubernetes/client-node';
 import { kubernetesService } from '../../services/kubernetes-api';
 import * as yaml from 'js-yaml';
+import HelmManager from '../helm/HelmManager';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -299,19 +300,27 @@ data:
 
   const handleSaveResource = async () => {
     try {
-      // Parse YAML to validate
-      const parsedYaml = yaml.load(yamlContent) as any;
-      
-      // In a real implementation, you would apply the resource to the cluster
-      console.log('Saving resource:', parsedYaml);
-      
+      // Parse YAML to validate and get manifest object
+      const manifest = yaml.load(yamlContent) as any;
+      if (!manifest || typeof manifest !== 'object') {
+        throw new Error('YAML did not produce a valid object');
+      }
+
+      const type = (resourceType || manifest.kind || '').toString().toLowerCase();
+      if (!type) throw new Error('Resource type is unknown');
+
+      const ns = manifest.metadata?.namespace || selectedNamespace;
+
+      // Call backend to create/apply the resource
+      await kubernetesService.createResource(type, manifest, ns);
+
       // Close dialogs and refresh data
       setYamlDialogOpen(false);
       setCreateDialogOpen(false);
       await fetchResources();
     } catch (error) {
       console.error('Failed to save resource:', error);
-      setError('Invalid YAML format or failed to save resource');
+      setError(error instanceof Error ? error.message : 'Invalid YAML format or failed to save resource');
     }
   };
 
@@ -434,6 +443,7 @@ data:
             <Tab label="Pods" />
             <Tab label="ConfigMaps" />
             <Tab label="Secrets" />
+            <Tab label="Helm Charts" />
           </Tabs>
         </Box>
 
@@ -895,6 +905,10 @@ data:
               ))
             )}
           </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={5}>
+          <HelmManager />
         </TabPanel>
       </Card>
 

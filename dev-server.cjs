@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const k8s = require('@kubernetes/client-node');
+let k8s; // Will be loaded dynamically
 
 const app = express();
 const port = process.env.API_PORT || 3001;
@@ -39,8 +39,7 @@ app.use((req, res, next) => {
 });
 
 // Initialize Kubernetes client
-const kc = new k8s.KubeConfig();
-let coreV1Api, appsV1Api, rbacV1Api, apiExtensionsV1Api, metricsV1Api, customObjectsApi;
+let kc, coreV1Api, appsV1Api, rbacV1Api, apiExtensionsV1Api, metricsV1Api, customObjectsApi;
 
 // Configurable logging
 const log = (message, data = '') => {
@@ -56,8 +55,15 @@ const logAlways = (message, data = '') => {
 };
 
 // Initialize Kubernetes APIs
-const initializeK8sApis = () => {
+const initializeK8sApis = async () => {
   try {
+    // Dynamic import of the ES module
+    if (!k8s) {
+      log('Loading Kubernetes client module...');
+      k8s = await import('@kubernetes/client-node');
+      kc = new k8s.KubeConfig();
+    }
+    
     log('Loading kubeconfig from default location...');
     kc.loadFromDefault();
     
@@ -135,7 +141,7 @@ const getClusterVersion = async () => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), test: 'modified-version' });
 });
 
 // Get cluster version
@@ -460,6 +466,121 @@ app.get('/api/crds', async (req, res) => {
   }
 });
 
+// Test route for debugging
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Test route works' });
+});
+
+// Get pods by namespace
+app.get('/api/resources/pods', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`Pods request received for namespace: ${namespace}`);
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await coreV1Api.listNamespacedPod({ namespace });
+    } else {
+      response = await coreV1Api.listPodForAllNamespaces();
+    }
+    
+    const pods = response.items || [];
+    log(`Retrieved ${pods.length} pods`);
+    res.json(pods);
+  } catch (error) {
+    log('ERROR: Failed to get pods:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get services by namespace
+app.get('/api/resources/services', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`Services request received for namespace: ${namespace}`);
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await coreV1Api.listNamespacedService({ namespace });
+    } else {
+      response = await coreV1Api.listServiceForAllNamespaces();
+    }
+    
+    const services = response.items || [];
+    log(`Retrieved ${services.length} services`);
+    res.json(services);
+  } catch (error) {
+    log('ERROR: Failed to get services:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get deployments by namespace
+app.get('/api/resources/deployments', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`Deployments request received for namespace: ${namespace}`);
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await appsV1Api.listNamespacedDeployment({ namespace });
+    } else {
+      response = await appsV1Api.listDeploymentForAllNamespaces();
+    }
+    
+    const deployments = response.items || [];
+    log(`Retrieved ${deployments.length} deployments`);
+    res.json(deployments);
+  } catch (error) {
+    log('ERROR: Failed to get deployments:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get configmaps by namespace
+app.get('/api/resources/configmaps', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`ConfigMaps request received for namespace: ${namespace}`);
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await coreV1Api.listNamespacedConfigMap({ namespace });
+    } else {
+      response = await coreV1Api.listConfigMapForAllNamespaces();
+    }
+    
+    const configmaps = response.items || [];
+    log(`Retrieved ${configmaps.length} configmaps`);
+    res.json(configmaps);
+  } catch (error) {
+    log('ERROR: Failed to get configmaps:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get secrets by namespace
+app.get('/api/resources/secrets', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`Secrets request received for namespace: ${namespace}`);
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await coreV1Api.listNamespacedSecret({ namespace });
+    } else {
+      response = await coreV1Api.listSecretForAllNamespaces();
+    }
+    
+    const secrets = response.items || [];
+    log(`Retrieved ${secrets.length} secrets`);
+    res.json(secrets);
+  } catch (error) {
+    log('ERROR: Failed to get secrets:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get detailed resource information
 app.get('/api/resources/:type/:namespace/:name', async (req, res) => {
   const { type, namespace, name } = req.params;
@@ -583,6 +704,67 @@ app.get('/api/resources/pod/:namespace/:name/logs', async (req, res) => {
     res.json({ logs });
   } catch (error) {
     log(`ERROR: Failed to get logs for pod ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create or apply resource from YAML
+app.post('/api/resources/:type', async (req, res) => {
+  const { type } = req.params;
+  const { namespace, manifest } = req.body || {};
+  log(`Resource creation request received for type: ${type} in namespace: ${namespace}`);
+
+  try {
+    if (!manifest || typeof manifest !== 'object') {
+      throw new Error('Invalid manifest payload. Expected parsed YAML object.');
+    }
+
+    // Determine namespace from manifest if not provided
+    const ns = namespace || manifest.metadata?.namespace || 'default';
+
+    // Basic safety: ensure type matches manifest.kind
+    const manifestKind = (manifest.kind || '').toLowerCase();
+    const typeNorm = (type || '').toLowerCase();
+    if (manifestKind && !manifestKind.includes(typeNorm)) {
+      log(`Warning: manifest.kind (${manifest.kind}) does not match type param (${type})`);
+    }
+
+    // Route to appropriate API based on kind
+    let created;
+    switch (typeNorm) {
+      case 'deployment': {
+        const resp = await appsV1Api.createNamespacedDeployment({ namespace: ns, body: manifest });
+        created = resp.body || resp;
+        break;
+      }
+      case 'service': {
+        const resp = await coreV1Api.createNamespacedService({ namespace: ns, body: manifest });
+        created = resp.body || resp;
+        break;
+      }
+      case 'configmap': {
+        const resp = await coreV1Api.createNamespacedConfigMap({ namespace: ns, body: manifest });
+        created = resp.body || resp;
+        break;
+      }
+      case 'secret': {
+        const resp = await coreV1Api.createNamespacedSecret({ namespace: ns, body: manifest });
+        created = resp.body || resp;
+        break;
+      }
+      case 'pod': {
+        const resp = await coreV1Api.createNamespacedPod({ namespace: ns, body: manifest });
+        created = resp.body || resp;
+        break;
+      }
+      default:
+        throw new Error(`Create not implemented for resource type '${type}'`);
+    }
+
+    log(`Successfully created ${type} ${created?.metadata?.name || ''} in ${ns}`);
+    res.json({ success: true, resource: created });
+  } catch (error) {
+    log(`ERROR: Failed to create ${type}:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -732,6 +914,7 @@ app.get('/api/crds/:name', async (req, res) => {
   }
 });
 
+
 // Get all Kubernetes resources (core + custom)
 app.get('/api/resources', async (req, res) => {
   log('Kubernetes resources request received');
@@ -836,6 +1019,352 @@ app.get('/api/events', async (req, res) => {
   }
 });
 
+// === HELM API ENDPOINTS ===
+
+// Execute Helm command helper
+const execHelm = async (args, options = {}) => {
+  const { spawn } = require('child_process');
+  const { timeout = 30000 } = options;
+  
+  return new Promise((resolve, reject) => {
+    const helm = spawn('helm', args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    helm.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    helm.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    helm.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`Helm command failed (exit code ${code}): ${stderr}`));
+      }
+    });
+    
+    helm.on('error', (error) => {
+      reject(new Error(`Failed to execute helm command: ${error.message}`));
+    });
+    
+    // Handle timeout
+    setTimeout(() => {
+      helm.kill('SIGKILL');
+      reject(new Error('Helm command timed out'));
+    }, timeout);
+  });
+};
+
+// Get Helm repositories
+app.get('/api/helm/repositories', async (req, res) => {
+  log('Helm repositories request received');
+  
+  try {
+    const output = await execHelm(['repo', 'list', '-o', 'json']);
+    const repositories = JSON.parse(output || '[]');
+    
+    log(`Retrieved ${repositories.length} Helm repositories`);
+    res.json(repositories);
+  } catch (error) {
+    log('ERROR: Failed to get Helm repositories:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add Helm repository
+app.post('/api/helm/repositories', async (req, res) => {
+  const { name, url } = req.body;
+  log(`Adding Helm repository: ${name} -> ${url}`);
+  
+  try {
+    if (!name || !url) {
+      throw new Error('Repository name and URL are required');
+    }
+    
+    await execHelm(['repo', 'add', name, url]);
+    await execHelm(['repo', 'update']);
+    
+    log(`Successfully added Helm repository: ${name}`);
+    res.json({ success: true, message: `Repository ${name} added successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to add Helm repository ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove Helm repository
+app.delete('/api/helm/repositories/:name', async (req, res) => {
+  const { name } = req.params;
+  log(`Removing Helm repository: ${name}`);
+  
+  try {
+    await execHelm(['repo', 'remove', name]);
+    
+    log(`Successfully removed Helm repository: ${name}`);
+    res.json({ success: true, message: `Repository ${name} removed successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to remove Helm repository ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Search Helm charts
+app.get('/api/helm/charts/search', async (req, res) => {
+  const { query = '', repo } = req.query;
+  log(`Searching Helm charts: query="${query}", repo="${repo}"`);
+  
+  try {
+    const args = ['search', 'repo'];
+    if (repo) {
+      args.push(`${repo}/${query || ''}`);
+    } else {
+      args.push(query || '');
+    }
+    args.push('-o', 'json');
+    
+    const output = await execHelm(args);
+    const charts = JSON.parse(output || '[]');
+    
+    log(`Found ${charts.length} Helm charts`);
+    res.json(charts);
+  } catch (error) {
+    log('ERROR: Failed to search Helm charts:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get chart information
+app.get('/api/helm/charts/:repo/:chart', async (req, res) => {
+  const { repo, chart } = req.params;
+  log(`Getting Helm chart info: ${repo}/${chart}`);
+  
+  try {
+    // Get chart info
+    const infoOutput = await execHelm(['show', 'chart', `${repo}/${chart}`]);
+    
+    // Get chart values
+    const valuesOutput = await execHelm(['show', 'values', `${repo}/${chart}`]);
+    
+    // Get chart readme (optional)
+    let readme = '';
+    try {
+      readme = await execHelm(['show', 'readme', `${repo}/${chart}`]);
+    } catch (err) {
+      log(`Warning: Could not get readme for ${repo}/${chart}`);
+    }
+    
+    const chartInfo = {
+      info: infoOutput,
+      values: valuesOutput,
+      readme: readme
+    };
+    
+    log(`Retrieved info for chart: ${repo}/${chart}`);
+    res.json(chartInfo);
+  } catch (error) {
+    log(`ERROR: Failed to get chart info for ${repo}/${chart}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Helm releases
+app.get('/api/helm/releases', async (req, res) => {
+  const { namespace } = req.query;
+  log(`Getting Helm releases${namespace ? ` in namespace: ${namespace}` : ' (all namespaces)'}`);
+  
+  try {
+    const args = ['list', '-o', 'json'];
+    if (namespace) {
+      args.push('-n', namespace);
+    } else {
+      args.push('-A'); // All namespaces
+    }
+    
+    const output = await execHelm(args);
+    const releases = JSON.parse(output || '[]');
+    
+    log(`Retrieved ${releases.length} Helm releases`);
+    res.json(releases);
+  } catch (error) {
+    log('ERROR: Failed to get Helm releases:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get release details
+app.get('/api/helm/releases/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Getting Helm release details: ${namespace}/${name}`);
+  
+  try {
+    // Get release status
+    const statusOutput = await execHelm(['status', name, '-n', namespace, '-o', 'json']);
+    const status = JSON.parse(statusOutput);
+    
+    // Get release history
+    const historyOutput = await execHelm(['history', name, '-n', namespace, '-o', 'json']);
+    const history = JSON.parse(historyOutput || '[]');
+    
+    // Get release values
+    const valuesOutput = await execHelm(['get', 'values', name, '-n', namespace, '-o', 'json']);
+    const values = JSON.parse(valuesOutput || '{}');
+    
+    const releaseDetails = {
+      status,
+      history,
+      values
+    };
+    
+    log(`Retrieved details for release: ${namespace}/${name}`);
+    res.json(releaseDetails);
+  } catch (error) {
+    log(`ERROR: Failed to get release details for ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Install Helm chart
+app.post('/api/helm/releases', async (req, res) => {
+  const { name, chart, namespace, values, version } = req.body;
+  log(`Installing Helm chart: ${chart} as ${name} in ${namespace}`);
+  
+  try {
+    if (!name || !chart || !namespace) {
+      throw new Error('Release name, chart, and namespace are required');
+    }
+    
+    const args = ['install', name, chart, '-n', namespace, '--create-namespace'];
+    
+    if (version) {
+      args.push('--version', version);
+    }
+    
+    if (values) {
+      // Create a temporary values file
+      const fs = require('fs');
+      const os = require('os');
+      const path = require('path');
+      
+      const tempValuesFile = path.join(os.tmpdir(), `helm-values-${Date.now()}.yaml`);
+      fs.writeFileSync(tempValuesFile, values);
+      
+      args.push('-f', tempValuesFile);
+      
+      try {
+        const output = await execHelm(args, { timeout: 120000 }); // 2 minute timeout
+        
+        // Clean up temp file
+        fs.unlinkSync(tempValuesFile);
+        
+        log(`Successfully installed chart: ${chart} as ${name}`);
+        res.json({ success: true, output, message: `Chart ${chart} installed as ${name}` });
+      } catch (error) {
+        // Clean up temp file on error
+        fs.unlinkSync(tempValuesFile);
+        throw error;
+      }
+    } else {
+      const output = await execHelm(args, { timeout: 120000 });
+      log(`Successfully installed chart: ${chart} as ${name}`);
+      res.json({ success: true, output, message: `Chart ${chart} installed as ${name}` });
+    }
+  } catch (error) {
+    log(`ERROR: Failed to install chart ${chart}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upgrade Helm release
+app.put('/api/helm/releases/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  const { chart, values, version } = req.body;
+  log(`Upgrading Helm release: ${namespace}/${name}`);
+  
+  try {
+    const args = ['upgrade', name, chart || name, '-n', namespace];
+    
+    if (version) {
+      args.push('--version', version);
+    }
+    
+    if (values) {
+      const fs = require('fs');
+      const os = require('os');
+      const path = require('path');
+      
+      const tempValuesFile = path.join(os.tmpdir(), `helm-values-${Date.now()}.yaml`);
+      fs.writeFileSync(tempValuesFile, values);
+      
+      args.push('-f', tempValuesFile);
+      
+      try {
+        const output = await execHelm(args, { timeout: 120000 });
+        fs.unlinkSync(tempValuesFile);
+        
+        log(`Successfully upgraded release: ${namespace}/${name}`);
+        res.json({ success: true, output, message: `Release ${name} upgraded successfully` });
+      } catch (error) {
+        fs.unlinkSync(tempValuesFile);
+        throw error;
+      }
+    } else {
+      const output = await execHelm(args, { timeout: 120000 });
+      log(`Successfully upgraded release: ${namespace}/${name}`);
+      res.json({ success: true, output, message: `Release ${name} upgraded successfully` });
+    }
+  } catch (error) {
+    log(`ERROR: Failed to upgrade release ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Uninstall Helm release
+app.delete('/api/helm/releases/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Uninstalling Helm release: ${namespace}/${name}`);
+  
+  try {
+    const output = await execHelm(['uninstall', name, '-n', namespace]);
+    
+    log(`Successfully uninstalled release: ${namespace}/${name}`);
+    res.json({ success: true, output, message: `Release ${name} uninstalled successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to uninstall release ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Rollback Helm release
+app.post('/api/helm/releases/:namespace/:name/rollback', async (req, res) => {
+  const { namespace, name } = req.params;
+  const { revision } = req.body;
+  log(`Rolling back Helm release: ${namespace}/${name} to revision ${revision}`);
+  
+  try {
+    const args = ['rollback', name];
+    if (revision) {
+      args.push(revision.toString());
+    }
+    args.push('-n', namespace);
+    
+    const output = await execHelm(args);
+    
+    log(`Successfully rolled back release: ${namespace}/${name}`);
+    res.json({ success: true, output, message: `Release ${name} rolled back successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to rollback release ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Configuration validation
 const validateConfiguration = () => {
   const errors = [];
@@ -858,7 +1387,7 @@ const validateConfiguration = () => {
 };
 
 // Start server
-const startServer = () => {
+const startServer = async () => {
   logAlways('🚀 Starting Kubernetes Admin API Server');
   logAlways(`   Environment: ${nodeEnv}`);
   logAlways(`   Port: ${port}`);
@@ -871,7 +1400,7 @@ const startServer = () => {
   validateConfiguration();
   
   // Initialize Kubernetes APIs
-  const initialized = initializeK8sApis();
+  const initialized = await initializeK8sApis();
   if (!initialized) {
     logAlways('❌ Failed to initialize Kubernetes APIs. Server will not start.');
     process.exit(1);
@@ -888,6 +1417,22 @@ const startServer = () => {
     log('  GET  /api/crds/:name');
     log('  GET  /api/resources');
     log('  GET  /api/events');
+    log('  RBAC endpoints:');
+    log('    GET    /api/rbac/serviceaccounts');
+    log('    POST   /api/rbac/serviceaccounts');
+    log('    DELETE /api/rbac/serviceaccounts/:namespace/:name');
+    log('    GET    /api/rbac/roles');
+    log('    POST   /api/rbac/roles');
+    log('    DELETE /api/rbac/roles/:namespace/:name');
+    log('    GET    /api/rbac/clusterroles');
+    log('    POST   /api/rbac/clusterroles');
+    log('    DELETE /api/rbac/clusterroles/:name');
+    log('    GET    /api/rbac/rolebindings');
+    log('    POST   /api/rbac/rolebindings');
+    log('    DELETE /api/rbac/rolebindings/:namespace/:name');
+    log('    GET    /api/rbac/clusterrolebindings');
+    log('    POST   /api/rbac/clusterrolebindings');
+    log('    DELETE /api/rbac/clusterrolebindings/:name');
     log('');
     log('CORS Policy: Accepting requests from any localhost port (development mode)');
     log('Frontend can run on any port: http://localhost:5173, 5174, 5175, etc.');
@@ -897,6 +1442,276 @@ const startServer = () => {
     log('  - http://localhost:5175 (Vite fallback)');
   });
 };
+
+// === RBAC ENDPOINTS ===
+
+// Service Accounts
+app.get('/api/rbac/serviceaccounts', async (req, res) => {
+  log('Service accounts request received');
+  const namespace = req.query.namespace;
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await coreV1Api.listNamespacedServiceAccount({ namespace });
+    } else {
+      response = await coreV1Api.listServiceAccountForAllNamespaces();
+    }
+    
+    const serviceAccounts = response.items || [];
+    log(`Retrieved ${serviceAccounts.length} service accounts`);
+    res.json(serviceAccounts);
+  } catch (error) {
+    log('ERROR: Failed to get service accounts:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/rbac/serviceaccounts', async (req, res) => {
+  log('Create service account request received');
+  const serviceAccount = req.body;
+  const namespace = serviceAccount.metadata?.namespace || 'default';
+  
+  try {
+    const response = await coreV1Api.createNamespacedServiceAccount({ 
+      namespace, 
+      body: serviceAccount 
+    });
+    const created = response.body || response;
+    
+    log(`Created service account: ${created.metadata?.name}`);
+    res.json(created);
+  } catch (error) {
+    log('ERROR: Failed to create service account:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/rbac/serviceaccounts/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Delete service account request: ${namespace}/${name}`);
+  
+  try {
+    await coreV1Api.deleteNamespacedServiceAccount({ name, namespace });
+    log(`Deleted service account: ${namespace}/${name}`);
+    res.json({ message: `Service account ${namespace}/${name} deleted` });
+  } catch (error) {
+    log(`ERROR: Failed to delete service account ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Roles
+app.get('/api/rbac/roles', async (req, res) => {
+  log('Roles request received');
+  const namespace = req.query.namespace;
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await rbacV1Api.listNamespacedRole({ namespace });
+    } else {
+      response = await rbacV1Api.listRoleForAllNamespaces();
+    }
+    
+    const roles = response.items || [];
+    log(`Retrieved ${roles.length} roles`);
+    res.json(roles);
+  } catch (error) {
+    log('ERROR: Failed to get roles:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/rbac/roles', async (req, res) => {
+  log('Create role request received');
+  const role = req.body;
+  const namespace = role.metadata?.namespace;
+  
+  try {
+    if (!namespace) {
+      return res.status(400).json({ error: 'Namespace is required for Role creation' });
+    }
+    
+    const response = await rbacV1Api.createNamespacedRole({ 
+      namespace, 
+      body: role 
+    });
+    const created = response.body || response;
+    
+    log(`Created role: ${created.metadata?.name}`);
+    res.json(created);
+  } catch (error) {
+    log('ERROR: Failed to create role:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/rbac/roles/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Delete role request: ${namespace}/${name}`);
+  
+  try {
+    await rbacV1Api.deleteNamespacedRole({ name, namespace });
+    log(`Deleted role: ${namespace}/${name}`);
+    res.json({ message: `Role ${namespace}/${name} deleted` });
+  } catch (error) {
+    log(`ERROR: Failed to delete role ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cluster Roles
+app.get('/api/rbac/clusterroles', async (req, res) => {
+  log('Cluster roles request received');
+  
+  try {
+    const response = await rbacV1Api.listClusterRole();
+    const clusterRoles = response.items || [];
+    
+    log(`Retrieved ${clusterRoles.length} cluster roles`);
+    res.json(clusterRoles);
+  } catch (error) {
+    log('ERROR: Failed to get cluster roles:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/rbac/clusterroles', async (req, res) => {
+  log('Create cluster role request received');
+  const clusterRole = req.body;
+  
+  try {
+    const response = await rbacV1Api.createClusterRole({ body: clusterRole });
+    const created = response.body || response;
+    
+    log(`Created cluster role: ${created.metadata?.name}`);
+    res.json(created);
+  } catch (error) {
+    log('ERROR: Failed to create cluster role:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/rbac/clusterroles/:name', async (req, res) => {
+  const { name } = req.params;
+  log(`Delete cluster role request: ${name}`);
+  
+  try {
+    await rbacV1Api.deleteClusterRole({ name });
+    log(`Deleted cluster role: ${name}`);
+    res.json({ message: `Cluster role ${name} deleted` });
+  } catch (error) {
+    log(`ERROR: Failed to delete cluster role ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Role Bindings
+app.get('/api/rbac/rolebindings', async (req, res) => {
+  log('Role bindings request received');
+  const namespace = req.query.namespace;
+  
+  try {
+    let response;
+    if (namespace) {
+      response = await rbacV1Api.listNamespacedRoleBinding({ namespace });
+    } else {
+      response = await rbacV1Api.listRoleBindingForAllNamespaces();
+    }
+    
+    const roleBindings = response.items || [];
+    log(`Retrieved ${roleBindings.length} role bindings`);
+    res.json(roleBindings);
+  } catch (error) {
+    log('ERROR: Failed to get role bindings:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/rbac/rolebindings', async (req, res) => {
+  log('Create role binding request received');
+  const roleBinding = req.body;
+  const namespace = roleBinding.metadata?.namespace;
+  
+  try {
+    if (!namespace) {
+      return res.status(400).json({ error: 'Namespace is required for RoleBinding creation' });
+    }
+    
+    const response = await rbacV1Api.createNamespacedRoleBinding({ 
+      namespace, 
+      body: roleBinding 
+    });
+    const created = response.body || response;
+    
+    log(`Created role binding: ${created.metadata?.name}`);
+    res.json(created);
+  } catch (error) {
+    log('ERROR: Failed to create role binding:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/rbac/rolebindings/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Delete role binding request: ${namespace}/${name}`);
+  
+  try {
+    await rbacV1Api.deleteNamespacedRoleBinding({ name, namespace });
+    log(`Deleted role binding: ${namespace}/${name}`);
+    res.json({ message: `Role binding ${namespace}/${name} deleted` });
+  } catch (error) {
+    log(`ERROR: Failed to delete role binding ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cluster Role Bindings
+app.get('/api/rbac/clusterrolebindings', async (req, res) => {
+  log('Cluster role bindings request received');
+  
+  try {
+    const response = await rbacV1Api.listClusterRoleBinding();
+    const clusterRoleBindings = response.items || [];
+    
+    log(`Retrieved ${clusterRoleBindings.length} cluster role bindings`);
+    res.json(clusterRoleBindings);
+  } catch (error) {
+    log('ERROR: Failed to get cluster role bindings:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/rbac/clusterrolebindings', async (req, res) => {
+  log('Create cluster role binding request received');
+  const clusterRoleBinding = req.body;
+  
+  try {
+    const response = await rbacV1Api.createClusterRoleBinding({ body: clusterRoleBinding });
+    const created = response.body || response;
+    
+    log(`Created cluster role binding: ${created.metadata?.name}`);
+    res.json(created);
+  } catch (error) {
+    log('ERROR: Failed to create cluster role binding:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/rbac/clusterrolebindings/:name', async (req, res) => {
+  const { name } = req.params;
+  log(`Delete cluster role binding request: ${name}`);
+  
+  try {
+    await rbacV1Api.deleteClusterRoleBinding({ name });
+    log(`Deleted cluster role binding: ${name}`);
+    res.json({ message: `Cluster role binding ${name} deleted` });
+  } catch (error) {
+    log(`ERROR: Failed to delete cluster role binding ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Handle graceful shutdown
 process.on('SIGTERM', () => {
@@ -909,4 +1724,7 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-startServer();
+startServer().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});

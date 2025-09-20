@@ -96,7 +96,7 @@ const Login: React.FC = () => {
       <Paper elevation={3} sx={{ width: 500, p: 0 }}>
         <Box p={3} textAlign="center">
           <Typography variant="h4" gutterBottom>
-            Kubernetes Admin UI
+            yakui
           </Typography>
           <Typography variant="subtitle1" color="textSecondary">
             Connect to your cluster to get started

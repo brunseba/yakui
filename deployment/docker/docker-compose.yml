@@ -1,0 +1,111 @@
+services:
+  # Frontend Development Server (Vite)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev-frontend
+      target: development
+    container_name: yakui-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:3001/api
+      - VITE_CLUSTER_CONTEXT=kind-krateo-quickstart
+      - VITE_ENABLE_STUB_FEATURES=true
+      - VITE_ENABLE_SERVER_MASKING=false
+      - VITE_ENABLE_VERBOSE_LOGGING=true
+    networks:
+      - yakui-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Backend API Server (Express + Kubernetes Client)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev-backend
+    container_name: yakui-backend
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ~/.kube:/home/node/.kube:ro  # Mount kubeconfig for Kubernetes access
+    environment:
+      - NODE_ENV=development
+      - API_PORT=3001
+      - API_TIMEOUT=30000
+      - CLUSTER_CONTEXT=kind-krateo-quickstart
+    networks:
+      - yakui-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    user: "node"
+
+  # Optional: Redis for caching (can be enabled if needed)
+  redis:
+    image: redis:7-alpine
+    container_name: yakui-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - yakui-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - cache  # Only start when explicitly enabled
+
+  # Optional: Prometheus for monitoring (can be enabled if needed)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: yakui-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - yakui-network
+    restart: unless-stopped
+    profiles:
+      - monitoring  # Only start when explicitly enabled
+
+networks:
+  yakui-network:
+    driver: bridge
+    name: yakui-network
+
+volumes:
+  redis-data:
+    name: yakui-redis-data
+  prometheus-data:
+    name: yakui-prometheus-data
