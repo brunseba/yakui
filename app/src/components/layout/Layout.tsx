@@ -134,6 +134,12 @@ const navigationItems: NavigationItem[] = [
     path: '/crds'
   },
   {
+    id: 'dependencies',
+    label: 'Dependencies',
+    icon: <AccountTreeIcon />,
+    path: '/dependencies'
+  },
+  {
     id: 'resources',
     label: 'Resource Manager',
     icon: <AppsIcon />,

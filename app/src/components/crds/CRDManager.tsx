@@ -26,7 +26,8 @@ import {
   IconButton,
   Tooltip,
   Tabs,
-  Tab
+  Tab,
+  Button
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -145,9 +146,19 @@ const CRDManager: React.FC = () => {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Kubernetes Resources
-      </Typography>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4">
+          Kubernetes Resources
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<SchemaIcon />}
+          onClick={() => navigate('/dependencies')}
+          sx={{ ml: 2 }}
+        >
+          View Dependencies
+        </Button>
+      </Box>
 
       {/* Tabs for filtering */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>

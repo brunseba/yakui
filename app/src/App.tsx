@@ -17,6 +17,7 @@ import ResourceDetail from './components/resources/ResourceDetail';
 import ResourceManager from './components/resources/ResourceManager';
 import CRDManager from './components/crds/CRDManager';
 import CRDDetail from './components/crds/CRDDetail';
+import DependencyBrowser from './components/dependencies/DependencyBrowser';
 import RBACManager from './components/rbac/RBACManager';
 import ComprehensiveRBACManager from './components/rbac/ComprehensiveRBACManager';
 import RBACDemo from './components/rbac/RBACDemo';
@@ -116,6 +117,9 @@ const AppRoutes: React.FC = () => {
         {/* CRD routes */}
         <Route path="/crds" element={<CRDManager />} />
         <Route path="/crds/:name" element={<CRDDetail />} />
+        
+        {/* Dependency routes */}
+        <Route path="/dependencies" element={<DependencyBrowser />} />
         
         {/* RBAC routes */}
         <Route path="/rbac" element={<ComprehensiveRBACManager />} />

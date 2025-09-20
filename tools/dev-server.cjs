@@ -1375,6 +1375,321 @@ app.post('/api/helm/releases/:namespace/:name/rollback', async (req, res) => {
   }
 });
 
+// === RESOURCE DEPENDENCY ENDPOINTS ===
+
+// Helper function to analyze resource dependencies
+const analyzeResourceDependencies = async (resource, allResources = null) => {
+  const dependencies = {
+    outgoing: [], // Resources this resource depends on
+    incoming: [], // Resources that depend on this resource
+    related: []   // Related resources (weak relationships)
+  };
+
+  if (!resource || !resource.metadata) {
+    return dependencies;
+  }
+
+  const resourceId = `${resource.kind}/${resource.metadata.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`;
+  const resourceLabels = resource.metadata.labels || {};
+
+  try {
+    // 1. Analyze owner references (outgoing dependencies)
+    if (resource.metadata.ownerReferences) {
+      for (const owner of resource.metadata.ownerReferences) {
+        dependencies.outgoing.push({
+          type: 'owner',
+          target: `${owner.kind}/${owner.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`,
+          strength: 'strong',
+          metadata: {
+            field: 'metadata.ownerReferences',
+            reason: `Owned by ${owner.kind} ${owner.name}`,
+            controller: owner.controller || false
+          }
+        });
+      }
+    }
+
+    // 2. Analyze volume dependencies (for Pods)
+    if (resource.kind === 'Pod' && resource.spec && resource.spec.volumes) {
+      for (const volume of resource.spec.volumes) {
+        if (volume.configMap) {
+          dependencies.outgoing.push({
+            type: 'volume',
+            target: `ConfigMap/${volume.configMap.name}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts ConfigMap ${volume.configMap.name}`
+            }
+          });
+        }
+        if (volume.secret) {
+          dependencies.outgoing.push({
+            type: 'volume',
+            target: `Secret/${volume.secret.secretName}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts Secret ${volume.secret.secretName}`
+            }
+          });
+        }
+        if (volume.persistentVolumeClaim) {
+          dependencies.outgoing.push({
+            type: 'volume',
+            target: `PersistentVolumeClaim/${volume.persistentVolumeClaim.claimName}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts PVC ${volume.persistentVolumeClaim.claimName}`
+            }
+          });
+        }
+      }
+    }
+
+    // 3. Analyze service account dependencies
+    if (resource.spec && resource.spec.serviceAccountName) {
+      dependencies.outgoing.push({
+        type: 'serviceAccount',
+        target: `ServiceAccount/${resource.spec.serviceAccountName}@${resource.metadata.namespace}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.serviceAccountName',
+          reason: `Uses ServiceAccount ${resource.spec.serviceAccountName}`
+        }
+      });
+    }
+
+    // 4. Analyze selector dependencies (for Services, NetworkPolicies, etc.)
+    if (resource.spec && resource.spec.selector) {
+      const selector = resource.spec.selector;
+      let selectorType = 'selector';
+      let reason = '';
+      
+      if (resource.kind === 'Service') {
+        selectorType = 'service';
+        reason = `Service selects pods matching labels`;
+      } else if (resource.kind === 'NetworkPolicy') {
+        selectorType = 'network';
+        reason = `NetworkPolicy applies to pods matching labels`;
+      }
+      
+      // For now, we'll indicate there are selector dependencies
+      // In a full implementation, we'd find matching resources
+      if (selector.matchLabels || selector.matchExpressions || (typeof selector === 'object' && Object.keys(selector).length > 0)) {
+        dependencies.related.push({
+          type: selectorType,
+          target: `*pods-matching-selector*`,
+          strength: 'weak',
+          metadata: {
+            field: 'spec.selector',
+            reason: reason,
+            selector: selector
+          }
+        });
+      }
+    }
+
+    // 5. Special handling for PVC -> PV relationships
+    if (resource.kind === 'PersistentVolumeClaim' && resource.spec && resource.spec.volumeName) {
+      dependencies.outgoing.push({
+        type: 'volume',
+        target: `PersistentVolume/${resource.spec.volumeName}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.volumeName',
+          reason: `Claims PersistentVolume ${resource.spec.volumeName}`
+        }
+      });
+    }
+
+  } catch (error) {
+    log(`Warning: Error analyzing dependencies for ${resourceId}:`, error.message);
+  }
+
+  return dependencies;
+};
+
+// Get resource dependencies for a specific resource
+app.get('/api/dependencies/:kind/:name', async (req, res) => {
+  const { kind, name } = req.params;
+  const namespace = req.query.namespace;
+  log(`Resource dependencies request for ${kind}/${name}${namespace ? ` in namespace ${namespace}` : ''}`);
+
+  try {
+    let resource = null;
+    
+    // Fetch the specific resource based on kind and name
+    switch (kind.toLowerCase()) {
+      case 'pod':
+        if (!namespace) throw new Error('Namespace required for Pod');
+        resource = await coreV1Api.readNamespacedPod({ name, namespace });
+        break;
+      case 'service':
+        if (!namespace) throw new Error('Namespace required for Service');
+        resource = await coreV1Api.readNamespacedService({ name, namespace });
+        break;
+      case 'deployment':
+        if (!namespace) throw new Error('Namespace required for Deployment');
+        resource = await appsV1Api.readNamespacedDeployment({ name, namespace });
+        break;
+      case 'configmap':
+        if (!namespace) throw new Error('Namespace required for ConfigMap');
+        resource = await coreV1Api.readNamespacedConfigMap({ name, namespace });
+        break;
+      case 'secret':
+        if (!namespace) throw new Error('Namespace required for Secret');
+        resource = await coreV1Api.readNamespacedSecret({ name, namespace });
+        break;
+      case 'node':
+        resource = await coreV1Api.readNode({ name });
+        break;
+      case 'namespace':
+        resource = await coreV1Api.readNamespace({ name });
+        break;
+      default:
+        throw new Error(`Resource kind '${kind}' not supported yet`);
+    }
+
+    if (!resource) {
+      return res.status(404).json({ error: `Resource ${kind}/${name} not found` });
+    }
+
+    // Analyze dependencies
+    const dependencies = await analyzeResourceDependencies(resource);
+    
+    const response = {
+      resource: {
+        kind: resource.kind,
+        name: resource.metadata?.name,
+        namespace: resource.metadata?.namespace,
+        uid: resource.metadata?.uid,
+        labels: resource.metadata?.labels,
+        creationTimestamp: resource.metadata?.creationTimestamp
+      },
+      dependencies
+    };
+    
+    log(`Found ${dependencies.outgoing.length + dependencies.incoming.length + dependencies.related.length} dependencies for ${kind}/${name}`);
+    res.json(response);
+  } catch (error) {
+    log(`ERROR: Failed to get dependencies for ${kind}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get dependency graph for a namespace or entire cluster
+app.get('/api/dependencies/graph', async (req, res) => {
+  const namespace = req.query.namespace;
+  const includeCustomResources = req.query.includeCustom === 'true';
+  log(`Dependency graph request for ${namespace ? `namespace: ${namespace}` : 'entire cluster'}`);
+
+  try {
+    const nodes = [];
+    const edges = [];
+    const resourceMap = new Map();
+    
+    // Helper function to add a resource as a node
+    const addResourceNode = (resource) => {
+      if (!resource || !resource.metadata) return;
+      
+      const nodeId = `${resource.kind}/${resource.metadata.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`;
+      
+      if (resourceMap.has(nodeId)) return nodeId;
+      
+      const node = {
+        id: nodeId,
+        kind: resource.kind,
+        name: resource.metadata.name,
+        namespace: resource.metadata.namespace,
+        labels: resource.metadata.labels || {},
+        creationTimestamp: resource.metadata.creationTimestamp,
+        status: resource.status || {}
+      };
+      
+      nodes.push(node);
+      resourceMap.set(nodeId, resource);
+      return nodeId;
+    };
+    
+    // Fetch core resources
+    const resourceTypes = [
+      { kind: 'Pod', api: coreV1Api, method: 'listNamespacedPod', clusterMethod: 'listPodForAllNamespaces' },
+      { kind: 'Service', api: coreV1Api, method: 'listNamespacedService', clusterMethod: 'listServiceForAllNamespaces' },
+      { kind: 'ConfigMap', api: coreV1Api, method: 'listNamespacedConfigMap', clusterMethod: 'listConfigMapForAllNamespaces' },
+      { kind: 'Secret', api: coreV1Api, method: 'listNamespacedSecret', clusterMethod: 'listSecretForAllNamespaces' },
+      { kind: 'Deployment', api: appsV1Api, method: 'listNamespacedDeployment', clusterMethod: 'listDeploymentForAllNamespaces' }
+    ];
+    
+    for (const resourceType of resourceTypes) {
+      try {
+        let resources = [];
+        if (namespace) {
+          const response = await resourceType.api[resourceType.method]({ namespace });
+          resources = response.items || [];
+        } else {
+          const response = await resourceType.api[resourceType.clusterMethod]();
+          resources = response.items || [];
+        }
+        
+        // Add nodes and analyze dependencies
+        for (const resource of resources.slice(0, 50)) { // Limit for performance
+          const nodeId = addResourceNode(resource);
+          const dependencies = await analyzeResourceDependencies(resource);
+          
+          // Add dependency edges
+          for (const dep of [...dependencies.outgoing, ...dependencies.incoming, ...dependencies.related]) {
+            // Only add edge if target node exists or can be inferred
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              edges.push({
+                id: `${nodeId}-${dep.target}`,
+                source: dep.type === 'incoming' ? dep.target : nodeId,
+                target: dep.type === 'incoming' ? nodeId : dep.target,
+                type: dep.type,
+                strength: dep.strength,
+                metadata: dep.metadata
+              });
+            }
+          }
+        }
+      } catch (error) {
+        log(`Warning: Failed to fetch ${resourceType.kind} resources:`, error.message);
+      }
+    }
+    
+    // Add cluster-scoped resources if not filtering by namespace
+    if (!namespace) {
+      try {
+        const nodesResponse = await coreV1Api.listNode();
+        const nodes_k8s = nodesResponse.items || [];
+        for (const node of nodes_k8s.slice(0, 20)) {
+          addResourceNode(node);
+        }
+      } catch (error) {
+        log('Warning: Failed to fetch nodes:', error.message);
+      }
+    }
+    
+    const response = {
+      metadata: {
+        namespace: namespace || 'cluster',
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        timestamp: new Date().toISOString()
+      },
+      nodes,
+      edges
+    };
+    
+    log(`Generated dependency graph: ${nodes.length} nodes, ${edges.length} edges`);
+    res.json(response);
+  } catch (error) {
+    log(`ERROR: Failed to generate dependency graph:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Configuration validation
 const validateConfiguration = () => {
   const errors = [];
@@ -1443,6 +1758,9 @@ const startServer = async () => {
     log('    GET    /api/rbac/clusterrolebindings');
     log('    POST   /api/rbac/clusterrolebindings');
     log('    DELETE /api/rbac/clusterrolebindings/:name');
+    log('  Resource Dependencies endpoints:');
+    log('    GET    /api/dependencies/:kind/:name');
+    log('    GET    /api/dependencies/graph');
     log('');
     log('CORS Policy: Accepting requests from any localhost port (development mode)');
     log('Frontend can run on any port: http://localhost:5173, 5174, 5175, etc.');
