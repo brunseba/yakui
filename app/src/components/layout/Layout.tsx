@@ -48,9 +48,12 @@ import {
   DataObject as DataObjectIcon,
   Key as KeyIcon,
   ViewModule as ViewModuleIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
+import { useThemeMode } from '../../contexts/ThemeContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const drawerWidth = 280;
@@ -124,14 +127,33 @@ const navigationItems: NavigationItem[] = [
         label: 'Services',
         icon: <AppsIcon />,
         path: '/workloads/services'
+      },
+      {
+        id: 'dependencies',
+        label: 'Dependencies',
+        icon: <AccountTreeIcon />,
+        path: '/workloads/dependencies'
       }
     ]
   },
   {
-    id: 'crds',
-    label: 'Custom Resources',
+    id: 'dictionary',
+    label: 'Dictionary',
     icon: <ExtensionIcon />,
-    path: '/crds'
+    children: [
+      {
+        id: 'custom-resources',
+        label: 'Custom Resources',
+        icon: <ExtensionIcon />,
+        path: '/dictionary/crds'
+      },
+      {
+        id: 'custom-resources-dependencies',
+        label: 'CRD Dependencies',
+        icon: <AccountTreeIcon />,
+        path: '/dictionary/dependencies'
+      }
+    ]
   },
   {
     id: 'resources',
@@ -311,6 +333,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { state: authState, logout } = useAuth();
+  const { isDarkMode, toggleDarkMode } = useThemeMode();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -390,9 +413,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div>
       <Toolbar>
         <Box display="flex" alignItems="center" width="100%">
-          <AppsIcon sx={{ mr: 1 }} />
-          <Typography variant="h6" noWrap>
-            K8s Admin
+          <img 
+            src="/yakui-32.png" 
+            alt="yakui" 
+            style={{ 
+              width: 32, 
+              height: 32, 
+              marginRight: 8,
+              borderRadius: 4
+            }} 
+          />
+          <Typography variant="h6" noWrap sx={{ fontWeight: 'bold' }}>
+            yakui
           </Typography>
         </Box>
       </Toolbar>
@@ -441,12 +473,52 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
+          
+          {/* Logo for mobile/tablet when sidebar is hidden */}
+          <Box 
+            display={{ xs: 'flex', md: 'none' }} 
+            alignItems="center" 
+            sx={{ mr: 2 }}
+          >
+            <img 
+              src="/yakui-32.png" 
+              alt="yakui" 
+              style={{ 
+                width: 28, 
+                height: 28, 
+                marginRight: 8,
+                borderRadius: 4
+              }} 
+            />
+            <Typography variant="h6" noWrap sx={{ fontWeight: 'bold' }}>
+              yakui
+            </Typography>
+          </Box>
+          
+          <Typography 
+            variant="h6" 
+            noWrap 
+            component="div" 
+            sx={{ 
+              flexGrow: 1,
+              display: { xs: 'none', md: 'block' }
+            }}
+          >
             Kubernetes Admin Dashboard
           </Typography>
           
-          {authState.user && (
-            <Box display="flex" alignItems="center">
+          <Box display="flex" alignItems="center" gap={1}>
+            {/* Dark mode toggle */}
+            <IconButton
+              color="inherit"
+              onClick={toggleDarkMode}
+              aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
+            </IconButton>
+            
+            {authState.user && (
               <IconButton
                 size="large"
                 edge="end"
@@ -459,8 +531,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   {authState.user.username.charAt(0).toUpperCase()}
                 </Avatar>
               </IconButton>
-            </Box>
-          )}
+            )}
+          </Box>
         </Toolbar>
       </AppBar>
       

@@ -1,11 +1,12 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { CssBaseline } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ValidationProvider } from './contexts/ValidationContext';
+import { ThemeModeProvider } from './contexts/ThemeContext';
+import { DependencyThemeContext, getEnvironmentTheme } from './config/dependency-theme';
 import Layout from './components/layout/Layout';
 import Login from './components/auth/Login';
 import Dashboard from './pages/Dashboard';
@@ -17,6 +18,8 @@ import ResourceDetail from './components/resources/ResourceDetail';
 import ResourceManager from './components/resources/ResourceManager';
 import CRDManager from './components/crds/CRDManager';
 import CRDDetail from './components/crds/CRDDetail';
+import DependencyBrowser from './components/dependencies/DependencyBrowser';
+import CRDDependencyBrowser from './components/dependencies/CRDDependencyBrowser';
 import RBACManager from './components/rbac/RBACManager';
 import ComprehensiveRBACManager from './components/rbac/ComprehensiveRBACManager';
 import RBACDemo from './components/rbac/RBACDemo';
@@ -27,26 +30,13 @@ import FeatureStatus from './components/common/FeatureStatus';
 import ComingSoon from './components/common/ComingSoon';
 import DevTest from './components/DevTest';
 
-// Create a custom theme
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-  components: {
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          backgroundColor: '#f8f9fa',
-        },
-      },
-    },
-  },
-});
+// Helper component for CRD detail redirect
+const CRDDetailRedirect: React.FC = () => {
+  const { name } = useParams<{ name: string }>();
+  return <Navigate to={`/dictionary/crds/${name}`} replace />;
+};
+
+// Theme is now handled by ThemeModeProvider
 
 // Create a QueryClient instance
 const queryClient = new QueryClient({
@@ -114,8 +104,21 @@ const AppRoutes: React.FC = () => {
         <Route path="/resources/:type/:namespace/:name" element={<ResourceDetail />} />
         
         {/* CRD routes */}
-        <Route path="/crds" element={<CRDManager />} />
-        <Route path="/crds/:name" element={<CRDDetail />} />
+        <Route path="/dictionary/crds" element={<CRDManager />} />
+        <Route path="/dictionary/crds/:name" element={<CRDDetail />} />
+        {/* Legacy routes for backward compatibility */}
+        <Route path="/crds" element={<Navigate to="/dictionary/crds" replace />} />
+        <Route path="/workloads/crds" element={<Navigate to="/dictionary/crds" replace />} />
+        <Route path="/crds/:name" element={<CRDDetailRedirect />} />
+        <Route path="/workloads/crds/:name" element={<CRDDetailRedirect />} />
+        
+        {/* Dictionary routes */}
+        <Route path="/dictionary/dependencies" element={<CRDDependencyBrowser />} />
+        
+        {/* Dependency routes */}
+        <Route path="/workloads/dependencies" element={<DependencyBrowser />} />
+        {/* Legacy route for backward compatibility */}
+        <Route path="/dependencies" element={<Navigate to="/workloads/dependencies" replace />} />
         
         {/* RBAC routes */}
         <Route path="/rbac" element={<ComprehensiveRBACManager />} />
@@ -162,31 +165,35 @@ const App: React.FC = () => {
   // In development mode, always show login first
   const isDevelopment = import.meta.env.DEV;
   
+  const dependencyTheme = getEnvironmentTheme();
+
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider theme={theme}>
+      <ThemeModeProvider>
         <CssBaseline />
-        <ValidationProvider>
-          <AuthProvider>
-            <Router>
-              <ErrorBoundary>
-                <Routes>
-                  <Route path="/dev-test" element={<DevTest />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route 
-                    path="/*" 
-                    element={
-                      <ProtectedRoute>
-                        <AppRoutes />
-                      </ProtectedRoute>
-                    } 
-                  />
-                </Routes>
-              </ErrorBoundary>
-            </Router>
-          </AuthProvider>
-        </ValidationProvider>
-      </ThemeProvider>
+        <DependencyThemeContext.Provider value={dependencyTheme}>
+          <ValidationProvider>
+            <AuthProvider>
+              <Router>
+                <ErrorBoundary>
+                  <Routes>
+                    <Route path="/dev-test" element={<DevTest />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route 
+                      path="/*" 
+                      element={
+                        <ProtectedRoute>
+                          <AppRoutes />
+                        </ProtectedRoute>
+                      } 
+                    />
+                  </Routes>
+                </ErrorBoundary>
+              </Router>
+            </AuthProvider>
+          </ValidationProvider>
+        </DependencyThemeContext.Provider>
+      </ThemeModeProvider>
     </QueryClientProvider>
   );
 };

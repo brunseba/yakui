@@ -7,7 +7,19 @@ const port = process.env.API_PORT || 3001;
 const nodeEnv = process.env.NODE_ENV || 'development';
 const enableVerboseLogging = nodeEnv === 'development';
 const apiTimeout = parseInt(process.env.API_TIMEOUT || '30000');
-const clusterContext = process.env.CLUSTER_CONTEXT || 'kind-krateo-quickstart';
+// Get cluster context - use environment variable or fall back to current context
+let clusterContext = process.env.CLUSTER_CONTEXT;
+if (!clusterContext) {
+  console.log('ℹ️  CLUSTER_CONTEXT not set, will use current kubectl context');
+  console.log('   You can explicitly set CLUSTER_CONTEXT to override this behavior');
+}
+
+// Configurable performance limits
+const MAX_RESOURCES_PER_TYPE = parseInt(process.env.MAX_RESOURCES_PER_TYPE || '100');
+const MAX_NAMESPACES_TO_SCAN = parseInt(process.env.MAX_NAMESPACES_TO_SCAN || '10');
+const MAX_NODES_TO_INCLUDE = parseInt(process.env.MAX_NODES_TO_INCLUDE || '50');
+const MAX_CRD_INSTANCES_PER_NS = parseInt(process.env.MAX_CRD_INSTANCES_PER_NS || '5');
+const MAX_CRD_SAMPLE_INSTANCES = parseInt(process.env.MAX_CRD_SAMPLE_INSTANCES || '10');
 
 // Enable CORS for frontend - allow any localhost port and Docker containers for development
 app.use(cors({
@@ -59,6 +71,20 @@ const log = (message, data = '') => {
   }
 };
 
+// Load core resources configuration
+let coreResourcesConfig = [];
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const configPath = path.join(__dirname, '../config/core-resources.json');
+  const configData = fs.readFileSync(configPath, 'utf8');
+  coreResourcesConfig = JSON.parse(configData).coreResources;
+  log('Loaded core resources configuration:', `${coreResourcesConfig.length} resources`);
+} catch (error) {
+  console.warn('Warning: Failed to load core resources config, using fallback:', error.message);
+  coreResourcesConfig = []; // Will use dynamic API discovery as fallback
+}
+
 const logAlways = (message, data = '') => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [K8s Dev Server] ${message}`, data);
@@ -81,8 +107,24 @@ const initializeK8sApis = async () => {
     const currentUser = kc.getCurrentUser();
     const currentCluster = kc.getCurrentCluster();
     
+    // If no explicit cluster context was set, use the current one from kubeconfig
+    if (!clusterContext) {
+      clusterContext = currentContext;
+      log('Using current kubectl context:', clusterContext);
+    } else {
+      log('Using explicit cluster context:', clusterContext);
+      // Validate that the specified context exists
+      const contexts = kc.getContexts();
+      const contextExists = contexts.some(ctx => ctx.name === clusterContext);
+      if (!contextExists) {
+        throw new Error(`Specified CLUSTER_CONTEXT '${clusterContext}' not found in kubeconfig. Available contexts: ${contexts.map(c => c.name).join(', ')}`);
+      }
+      // Switch to the specified context
+      kc.setCurrentContext(clusterContext);
+    }
+    
     log('Kubeconfig loaded successfully');
-    log('Current context:', currentContext);
+    log('Active context:', clusterContext);
     log('Current user:', currentUser?.name || 'unknown');
     log('Current cluster server:', currentCluster?.server || 'unknown');
     
@@ -258,6 +300,27 @@ app.get('/api/nodes', async (req, res) => {
     res.json(response.items || []);
   } catch (error) {
     log('ERROR: Failed to get nodes:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pods running on a specific node
+app.get('/api/nodes/:nodeName/pods', async (req, res) => {
+  const nodeName = req.params.nodeName;
+  log(`Pods for node request received: ${nodeName}`);
+  
+  try {
+    // List all pods across all namespaces and filter by node
+    const response = await coreV1Api.listPodForAllNamespaces();
+    const allPods = response.items || [];
+    
+    // Filter pods that are running on the specified node
+    const nodePods = allPods.filter(pod => pod.spec?.nodeName === nodeName);
+    
+    log(`Retrieved ${nodePods.length} pods for node ${nodeName}`);
+    res.json(nodePods);
+  } catch (error) {
+    log(`ERROR: Failed to get pods for node ${nodeName}:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -845,7 +908,7 @@ app.get('/api/crds/:name', async (req, res) => {
           const namespacesResponse = await coreV1Api.listNamespace();
           const namespaces = namespacesResponse.items || [];
           
-          for (const namespace of namespaces.slice(0, 5)) { // Limit to first 5 namespaces for performance
+          for (const namespace of namespaces.slice(0, MAX_NAMESPACES_TO_SCAN)) { // Configurable namespace limit for performance
             try {
               const customResponse = await customObjectsApi.listNamespacedCustomObject(
                 group,
@@ -857,7 +920,7 @@ app.get('/api/crds/:name', async (req, res) => {
               instanceCount += namespaceInstances.length;
               
               // Add sample instances (limit to avoid large responses)
-              instances.push(...namespaceInstances.slice(0, 3).map(instance => ({
+              instances.push(...namespaceInstances.slice(0, MAX_CRD_INSTANCES_PER_NS).map(instance => ({
                 name: instance.metadata?.name,
                 namespace: instance.metadata?.namespace,
                 age: instance.metadata?.creationTimestamp,
@@ -878,7 +941,7 @@ app.get('/api/crds/:name', async (req, res) => {
             const clusterInstances = customResponse.body?.items || [];
             instanceCount = clusterInstances.length;
             
-            instances = clusterInstances.slice(0, 10).map(instance => ({
+            instances = clusterInstances.slice(0, MAX_CRD_SAMPLE_INSTANCES).map(instance => ({
               name: instance.metadata?.name,
               namespace: null,
               age: instance.metadata?.creationTimestamp,
@@ -934,48 +997,18 @@ app.get('/api/resources', async (req, res) => {
     const apiGroupsResponse = await coreV1Api.getAPIResources();
     log('Core API groups response received');
     
-    // Define core Kubernetes resources with their metadata
-    const coreResources = [
-      // Core/v1 resources
-      { group: 'core', version: 'v1', kind: 'Pod', plural: 'pods', namespaced: true, description: 'A Pod is a collection of containers that can run on a host' },
-      { group: 'core', version: 'v1', kind: 'Service', plural: 'services', namespaced: true, description: 'A Service is an abstraction for network access to pods' },
-      { group: 'core', version: 'v1', kind: 'ConfigMap', plural: 'configmaps', namespaced: true, description: 'ConfigMap holds configuration data for pods to consume' },
-      { group: 'core', version: 'v1', kind: 'Secret', plural: 'secrets', namespaced: true, description: 'Secret holds secret data of a certain type' },
-      { group: 'core', version: 'v1', kind: 'PersistentVolume', plural: 'persistentvolumes', namespaced: false, description: 'PersistentVolume represents a piece of storage' },
-      { group: 'core', version: 'v1', kind: 'PersistentVolumeClaim', plural: 'persistentvolumeclaims', namespaced: true, description: 'PersistentVolumeClaim is a user\'s request for storage' },
-      { group: 'core', version: 'v1', kind: 'Namespace', plural: 'namespaces', namespaced: false, description: 'Namespace provides a scope for names' },
-      { group: 'core', version: 'v1', kind: 'Node', plural: 'nodes', namespaced: false, description: 'Node is a worker node in Kubernetes' },
-      { group: 'core', version: 'v1', kind: 'ServiceAccount', plural: 'serviceaccounts', namespaced: true, description: 'ServiceAccount binds together a name, a principal, and a set of tokens' },
-      
-      // Apps/v1 resources
-      { group: 'apps', version: 'v1', kind: 'Deployment', plural: 'deployments', namespaced: true, description: 'Deployment enables declarative updates for Pods and ReplicaSets' },
-      { group: 'apps', version: 'v1', kind: 'ReplicaSet', plural: 'replicasets', namespaced: true, description: 'ReplicaSet ensures that a specified number of pod replicas are running' },
-      { group: 'apps', version: 'v1', kind: 'StatefulSet', plural: 'statefulsets', namespaced: true, description: 'StatefulSet manages the deployment and scaling of Pods with persistent storage' },
-      { group: 'apps', version: 'v1', kind: 'DaemonSet', plural: 'daemonsets', namespaced: true, description: 'DaemonSet ensures that all nodes run a copy of a Pod' },
-      
-      // Batch resources
-      { group: 'batch', version: 'v1', kind: 'Job', plural: 'jobs', namespaced: true, description: 'Job represents a finite task that runs one or more pods to completion' },
-      { group: 'batch', version: 'v1', kind: 'CronJob', plural: 'cronjobs', namespaced: true, description: 'CronJob represents a time-based Job' },
-      
-      // Networking resources
-      { group: 'networking.k8s.io', version: 'v1', kind: 'Ingress', plural: 'ingresses', namespaced: true, description: 'Ingress manages external access to services' },
-      { group: 'networking.k8s.io', version: 'v1', kind: 'NetworkPolicy', plural: 'networkpolicies', namespaced: true, description: 'NetworkPolicy describes allowed network traffic' },
-      
-      // RBAC resources
-      { group: 'rbac.authorization.k8s.io', version: 'v1', kind: 'Role', plural: 'roles', namespaced: true, description: 'Role contains rules that represent a set of permissions' },
-      { group: 'rbac.authorization.k8s.io', version: 'v1', kind: 'ClusterRole', plural: 'clusterroles', namespaced: false, description: 'ClusterRole contains rules that represent a set of permissions' },
-      { group: 'rbac.authorization.k8s.io', version: 'v1', kind: 'RoleBinding', plural: 'rolebindings', namespaced: true, description: 'RoleBinding references a role, but does not contain it' },
-      { group: 'rbac.authorization.k8s.io', version: 'v1', kind: 'ClusterRoleBinding', plural: 'clusterrolebindings', namespaced: false, description: 'ClusterRoleBinding references a ClusterRole, but does not contain it' },
-      
-      // Storage resources
-      { group: 'storage.k8s.io', version: 'v1', kind: 'StorageClass', plural: 'storageclasses', namespaced: false, description: 'StorageClass describes the parameters for a class of storage' },
-      
-      // Policy resources
-      { group: 'policy', version: 'v1', kind: 'PodDisruptionBudget', plural: 'poddisruptionbudgets', namespaced: true, description: 'PodDisruptionBudget limits the number of pods that are down' },
-      
-      // Autoscaling resources
-      { group: 'autoscaling', version: 'v2', kind: 'HorizontalPodAutoscaler', plural: 'horizontalpodautoscalers', namespaced: true, description: 'HorizontalPodAutoscaler automatically scales pods based on metrics' },
-    ];
+    // Use configurable core resources or discover dynamically
+    let coreResources = coreResourcesConfig.length > 0 ? coreResourcesConfig : [];
+    
+    // If no config available, use minimal fallback set
+    if (coreResources.length === 0) {
+      log('Using minimal core resources fallback');
+      coreResources = [
+        { group: 'core', version: 'v1', kind: 'Pod', plural: 'pods', namespaced: true, description: 'A Pod is a collection of containers' },
+        { group: 'core', version: 'v1', kind: 'Service', plural: 'services', namespaced: true, description: 'A Service is network access to pods' },
+        { group: 'apps', version: 'v1', kind: 'Deployment', plural: 'deployments', namespaced: true, description: 'Deployment manages pod replicas' }
+      ];
+    }
     
     // Get CRDs to merge with core resources
     const crdsResponse = await apiExtensionsV1Api.listCustomResourceDefinition();
@@ -1375,25 +1408,2745 @@ app.post('/api/helm/releases/:namespace/:name/rollback', async (req, res) => {
   }
 });
 
+// === RESOURCE DEPENDENCY ENDPOINTS ===
+
+// Helper function to analyze resource dependencies
+const analyzeResourceDependencies = async (resource, allResources = null) => {
+  const dependencies = {
+    outgoing: [], // Resources this resource depends on
+    incoming: [], // Resources that depend on this resource
+    related: []   // Related resources (weak relationships)
+  };
+
+  if (!resource || !resource.metadata) {
+    return dependencies;
+  }
+
+  const resourceId = `${resource.kind}/${resource.metadata.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`;
+  const resourceLabels = resource.metadata.labels || {};
+
+  try {
+    // 1. Analyze owner references (outgoing dependencies)
+    if (resource.metadata.ownerReferences) {
+      for (const owner of resource.metadata.ownerReferences) {
+        dependencies.outgoing.push({
+          type: 'owner',
+          target: `${owner.kind}/${owner.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`,
+          strength: 'strong',
+          metadata: {
+            field: 'metadata.ownerReferences',
+            reason: `Owned by ${owner.kind} ${owner.name}`,
+            controller: owner.controller || false
+          }
+        });
+      }
+    }
+
+    // 2. Analyze volume dependencies (for Pods)
+    if (resource.kind === 'Pod' && resource.spec && resource.spec.volumes) {
+      for (const volume of resource.spec.volumes) {
+        if (volume.configMap) {
+          dependencies.outgoing.push({
+            type: 'configMap',
+            target: `ConfigMap/${volume.configMap.name}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts ConfigMap ${volume.configMap.name} as volume`
+            }
+          });
+        }
+        if (volume.secret) {
+          dependencies.outgoing.push({
+            type: 'secret',
+            target: `Secret/${volume.secret.secretName}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts Secret ${volume.secret.secretName} as volume`
+            }
+          });
+        }
+        if (volume.persistentVolumeClaim) {
+          dependencies.outgoing.push({
+            type: 'volume',
+            target: `PersistentVolumeClaim/${volume.persistentVolumeClaim.claimName}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: 'spec.volumes',
+              reason: `Mounts PVC ${volume.persistentVolumeClaim.claimName}`
+            }
+          });
+        }
+      }
+    }
+
+    // 3. Analyze service account dependencies
+    if (resource.spec && resource.spec.serviceAccountName) {
+      dependencies.outgoing.push({
+        type: 'serviceAccount',
+        target: `ServiceAccount/${resource.spec.serviceAccountName}@${resource.metadata.namespace}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.serviceAccountName',
+          reason: `Uses ServiceAccount ${resource.spec.serviceAccountName}`
+        }
+      });
+    }
+
+    // 4. Analyze selector dependencies (for Services, NetworkPolicies, etc.)
+    if (resource.spec && resource.spec.selector) {
+      const selector = resource.spec.selector;
+      let selectorType = 'selector';
+      let reason = '';
+      
+      if (resource.kind === 'Service') {
+        selectorType = 'service';
+        reason = `Service targets pods with matching labels`;
+      } else if (resource.kind === 'NetworkPolicy') {
+        selectorType = 'network';
+        reason = `NetworkPolicy applies to pods matching labels`;
+      }
+      
+      // Store selector info for later matching with actual pods
+      // This will be used in the graph generation to find actual pod targets
+      if (selector && (selector.matchLabels || selector.matchExpressions || (typeof selector === 'object' && Object.keys(selector).length > 0))) {
+        dependencies.related.push({
+          type: selectorType,
+          target: `*selector-match*`,
+          strength: resource.kind === 'Service' ? 'strong' : 'weak',
+          metadata: {
+            field: 'spec.selector',
+            reason: reason,
+            selector: selector,
+            selectorLabels: selector.matchLabels || selector || {}
+          }
+        });
+      }
+    }
+
+    // 5. Special handling for PVC -> PV relationships
+    if (resource.kind === 'PersistentVolumeClaim' && resource.spec && resource.spec.volumeName) {
+      dependencies.outgoing.push({
+        type: 'volume',
+        target: `PersistentVolume/${resource.spec.volumeName}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.volumeName',
+          reason: `Claims PersistentVolume ${resource.spec.volumeName}`
+        }
+      });
+    }
+
+    // 6. PVC -> StorageClass relationships
+    if (resource.kind === 'PersistentVolumeClaim' && resource.spec && resource.spec.storageClassName) {
+      dependencies.outgoing.push({
+        type: 'volume',
+        target: `StorageClass/${resource.spec.storageClassName}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.storageClassName',
+          reason: `Uses StorageClass ${resource.spec.storageClassName}`
+        }
+      });
+    }
+
+    // 7. Ingress -> Service relationships
+    if (resource.kind === 'Ingress' && resource.spec && resource.spec.rules) {
+      for (const rule of resource.spec.rules) {
+        if (rule.http && rule.http.paths) {
+          for (const path of rule.http.paths) {
+            if (path.backend && path.backend.service && path.backend.service.name) {
+              dependencies.outgoing.push({
+                type: 'service',
+                target: `Service/${path.backend.service.name}@${resource.metadata.namespace}`,
+                strength: 'strong',
+                metadata: {
+                  field: 'spec.rules[].http.paths[].backend.service',
+                  reason: `Routes traffic to Service ${path.backend.service.name}`
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 8. ReplicaSet -> Deployment relationships (via ownerReferences - already covered above)
+    // This is handled by the general ownerReferences logic
+
+    // 9. Pod -> Node relationships
+    if (resource.kind === 'Pod' && resource.spec && resource.spec.nodeName) {
+      dependencies.outgoing.push({
+        type: 'scheduling',
+        target: `Node/${resource.spec.nodeName}`,
+        strength: 'strong',
+        metadata: {
+          field: 'spec.nodeName',
+          reason: `Scheduled on Node ${resource.spec.nodeName}`
+        }
+      });
+    }
+
+    // 10. Enhanced environment variable dependencies for Pod-like resources
+    const analyzePodSpec = (podSpec, pathPrefix = 'spec') => {
+      if (!podSpec || !podSpec.containers) return;
+      
+      // Analyze each container
+      podSpec.containers.forEach((container, containerIndex) => {
+        if (container.env) {
+          container.env.forEach((envVar, envIndex) => {
+            // ConfigMap environment variable references
+            if (envVar.valueFrom && envVar.valueFrom.configMapKeyRef) {
+              dependencies.outgoing.push({
+                type: 'environment',
+                target: `ConfigMap/${envVar.valueFrom.configMapKeyRef.name}@${resource.metadata.namespace}`,
+                strength: 'strong',
+                metadata: {
+                  field: `${pathPrefix}.containers[${containerIndex}].env[${envIndex}].valueFrom.configMapKeyRef`,
+                  reason: `Environment variable '${envVar.name}' references ConfigMap ${envVar.valueFrom.configMapKeyRef.name}`
+                }
+              });
+            }
+            
+            // Secret environment variable references
+            if (envVar.valueFrom && envVar.valueFrom.secretKeyRef) {
+              dependencies.outgoing.push({
+                type: 'environment',
+                target: `Secret/${envVar.valueFrom.secretKeyRef.name}@${resource.metadata.namespace}`,
+                strength: 'strong',
+                metadata: {
+                  field: `${pathPrefix}.containers[${containerIndex}].env[${envIndex}].valueFrom.secretKeyRef`,
+                  reason: `Environment variable '${envVar.name}' references Secret ${envVar.valueFrom.secretKeyRef.name}`
+                }
+              });
+            }
+          });
+        }
+        
+        // Analyze envFrom (bulk environment variable loading)
+        if (container.envFrom) {
+          container.envFrom.forEach((envFrom, envFromIndex) => {
+            if (envFrom.configMapRef) {
+              dependencies.outgoing.push({
+                type: 'environment',
+                target: `ConfigMap/${envFrom.configMapRef.name}@${resource.metadata.namespace}`,
+                strength: 'strong',
+                metadata: {
+                  field: `${pathPrefix}.containers[${containerIndex}].envFrom[${envFromIndex}].configMapRef`,
+                  reason: `Container '${container.name}' loads all environment variables from ConfigMap ${envFrom.configMapRef.name}`
+                }
+              });
+            }
+            
+            if (envFrom.secretRef) {
+              dependencies.outgoing.push({
+                type: 'environment',
+                target: `Secret/${envFrom.secretRef.name}@${resource.metadata.namespace}`,
+                strength: 'strong',
+                metadata: {
+                  field: `${pathPrefix}.containers[${containerIndex}].envFrom[${envFromIndex}].secretRef`,
+                  reason: `Container '${container.name}' loads all environment variables from Secret ${envFrom.secretRef.name}`
+                }
+              });
+            }
+          });
+        }
+      });
+      
+      // Analyze imagePullSecrets
+      if (podSpec.imagePullSecrets) {
+        podSpec.imagePullSecrets.forEach((imagePullSecret, index) => {
+          dependencies.outgoing.push({
+            type: 'imagePullSecret',
+            target: `Secret/${imagePullSecret.name}@${resource.metadata.namespace}`,
+            strength: 'strong',
+            metadata: {
+              field: `${pathPrefix}.imagePullSecrets[${index}]`,
+              reason: `Uses Secret ${imagePullSecret.name} for image pull authentication`
+            }
+          });
+        });
+      }
+    };
+    
+    // Apply Pod spec analysis to Pods and Pod templates
+    if (resource.kind === 'Pod' && resource.spec) {
+      analyzePodSpec(resource.spec, 'spec');
+    } else if ((resource.kind === 'Deployment' || resource.kind === 'StatefulSet' || resource.kind === 'DaemonSet' || resource.kind === 'Job') 
+               && resource.spec && resource.spec.template && resource.spec.template.spec) {
+      analyzePodSpec(resource.spec.template.spec, 'spec.template.spec');
+    } else if (resource.kind === 'CronJob' && resource.spec && resource.spec.jobTemplate && resource.spec.jobTemplate.spec && resource.spec.jobTemplate.spec.template && resource.spec.jobTemplate.spec.template.spec) {
+      analyzePodSpec(resource.spec.jobTemplate.spec.template.spec, 'spec.jobTemplate.spec.template.spec');
+    }
+
+    // 11. Enhanced service account relationships for all pod-like resources
+    if ((resource.kind === 'Pod' || resource.kind === 'Deployment' || resource.kind === 'StatefulSet' || resource.kind === 'DaemonSet') 
+        && resource.spec) {
+      let serviceAccountName = null;
+      
+      if (resource.kind === 'Pod' && resource.spec.serviceAccountName) {
+        serviceAccountName = resource.spec.serviceAccountName;
+      } else if (resource.spec.template && resource.spec.template.spec && resource.spec.template.spec.serviceAccountName) {
+        serviceAccountName = resource.spec.template.spec.serviceAccountName;
+      }
+      
+      if (serviceAccountName && serviceAccountName !== 'default') {
+        dependencies.outgoing.push({
+          type: 'serviceAccount',
+          target: `ServiceAccount/${serviceAccountName}@${resource.metadata.namespace}`,
+          strength: 'strong',
+          metadata: {
+            field: resource.kind === 'Pod' ? 'spec.serviceAccountName' : 'spec.template.spec.serviceAccountName',
+            reason: `Uses ServiceAccount ${serviceAccountName}`
+          }
+        });
+      }
+    }
+
+    // 12. Reverse dependency analysis for ConfigMaps, Secrets, and ServiceAccounts
+    if (resource.kind === 'ConfigMap' || resource.kind === 'Secret' || resource.kind === 'ServiceAccount') {
+      try {
+        // Find Pods that reference this ConfigMap/Secret
+        const pods = await coreV1Api.listNamespacedPod({ namespace: resource.metadata.namespace });
+        const podItems = pods.items || [];
+        
+        // Find Deployments that reference this ConfigMap/Secret
+        const deployments = await appsV1Api.listNamespacedDeployment({ namespace: resource.metadata.namespace });
+        const deploymentItems = deployments.items || [];
+        
+        // Find StatefulSets that reference this ConfigMap/Secret
+        const statefulSets = await appsV1Api.listNamespacedStatefulSet({ namespace: resource.metadata.namespace });
+        const statefulSetItems = statefulSets.items || [];
+        
+        // Find DaemonSets that reference this ConfigMap/Secret
+        const daemonSets = await appsV1Api.listNamespacedDaemonSet({ namespace: resource.metadata.namespace });
+        const daemonSetItems = daemonSets.items || [];
+        
+        const allWorkloads = [
+          ...podItems.map(pod => ({ ...pod, kind: 'Pod' })),
+          ...deploymentItems.map(deployment => ({ ...deployment, kind: 'Deployment' })),
+          ...statefulSetItems.map(statefulSet => ({ ...statefulSet, kind: 'StatefulSet' })),
+          ...daemonSetItems.map(daemonSet => ({ ...daemonSet, kind: 'DaemonSet' }))
+        ];
+        
+        for (const workload of allWorkloads) {
+          const workloadId = `${workload.kind}/${workload.metadata.name}@${workload.metadata.namespace}`;
+          const podSpec = workload.kind === 'Pod' ? workload.spec : workload.spec?.template?.spec;
+          
+          if (!podSpec) continue;
+          
+          // Check volume references
+          if (podSpec.volumes) {
+            for (const volume of podSpec.volumes) {
+              if (resource.kind === 'ConfigMap' && volume.configMap && volume.configMap.name === resource.metadata.name) {
+                dependencies.incoming.push({
+                  type: 'configMap',
+                  target: workloadId,
+                  strength: 'strong',
+                  metadata: {
+                    field: workload.kind === 'Pod' ? 'spec.volumes' : 'spec.template.spec.volumes',
+                    reason: `${workload.kind} ${workload.metadata.name} mounts this ConfigMap as volume`,
+                    volumeName: volume.name
+                  }
+                });
+              }
+              if (resource.kind === 'Secret' && volume.secret && volume.secret.secretName === resource.metadata.name) {
+                dependencies.incoming.push({
+                  type: 'secret',
+                  target: workloadId,
+                  strength: 'strong',
+                  metadata: {
+                    field: workload.kind === 'Pod' ? 'spec.volumes' : 'spec.template.spec.volumes',
+                    reason: `${workload.kind} ${workload.metadata.name} mounts this Secret as volume`,
+                    volumeName: volume.name
+                  }
+                });
+              }
+            }
+          }
+          
+          // Check environment variable references
+          if (podSpec.containers) {
+            podSpec.containers.forEach((container, containerIndex) => {
+              // Check individual environment variables
+              if (container.env) {
+                container.env.forEach((envVar, envIndex) => {
+                  if (resource.kind === 'ConfigMap' && envVar.valueFrom && envVar.valueFrom.configMapKeyRef && 
+                      envVar.valueFrom.configMapKeyRef.name === resource.metadata.name) {
+                    dependencies.incoming.push({
+                      type: 'environment',
+                      target: workloadId,
+                      strength: 'strong',
+                      metadata: {
+                        field: `${workload.kind === 'Pod' ? 'spec' : 'spec.template.spec'}.containers[${containerIndex}].env[${envIndex}]`,
+                        reason: `${workload.kind} ${workload.metadata.name} uses environment variable '${envVar.name}' from this ConfigMap`,
+                        envVarName: envVar.name,
+                        containerName: container.name
+                      }
+                    });
+                  }
+                  if (resource.kind === 'Secret' && envVar.valueFrom && envVar.valueFrom.secretKeyRef && 
+                      envVar.valueFrom.secretKeyRef.name === resource.metadata.name) {
+                    dependencies.incoming.push({
+                      type: 'environment',
+                      target: workloadId,
+                      strength: 'strong',
+                      metadata: {
+                        field: `${workload.kind === 'Pod' ? 'spec' : 'spec.template.spec'}.containers[${containerIndex}].env[${envIndex}]`,
+                        reason: `${workload.kind} ${workload.metadata.name} uses environment variable '${envVar.name}' from this Secret`,
+                        envVarName: envVar.name,
+                        containerName: container.name
+                      }
+                    });
+                  }
+                });
+              }
+              
+              // Check envFrom (bulk environment variable loading)
+              if (container.envFrom) {
+                container.envFrom.forEach((envFrom, envFromIndex) => {
+                  if (resource.kind === 'ConfigMap' && envFrom.configMapRef && 
+                      envFrom.configMapRef.name === resource.metadata.name) {
+                    dependencies.incoming.push({
+                      type: 'environment',
+                      target: workloadId,
+                      strength: 'strong',
+                      metadata: {
+                        field: `${workload.kind === 'Pod' ? 'spec' : 'spec.template.spec'}.containers[${containerIndex}].envFrom[${envFromIndex}]`,
+                        reason: `${workload.kind} ${workload.metadata.name} loads all environment variables from this ConfigMap`,
+                        containerName: container.name
+                      }
+                    });
+                  }
+                  if (resource.kind === 'Secret' && envFrom.secretRef && 
+                      envFrom.secretRef.name === resource.metadata.name) {
+                    dependencies.incoming.push({
+                      type: 'environment',
+                      target: workloadId,
+                      strength: 'strong',
+                      metadata: {
+                        field: `${workload.kind === 'Pod' ? 'spec' : 'spec.template.spec'}.containers[${containerIndex}].envFrom[${envFromIndex}]`,
+                        reason: `${workload.kind} ${workload.metadata.name} loads all environment variables from this Secret`,
+                        containerName: container.name
+                      }
+                    });
+                  }
+                });
+              }
+            });
+          }
+          
+          // Check imagePullSecrets (only for Secrets)
+          if (resource.kind === 'Secret' && podSpec.imagePullSecrets) {
+            for (const imagePullSecret of podSpec.imagePullSecrets) {
+              if (imagePullSecret.name === resource.metadata.name) {
+                dependencies.incoming.push({
+                  type: 'imagePullSecret',
+                  target: workloadId,
+                  strength: 'strong',
+                  metadata: {
+                    field: workload.kind === 'Pod' ? 'spec.imagePullSecrets' : 'spec.template.spec.imagePullSecrets',
+                    reason: `${workload.kind} ${workload.metadata.name} uses this Secret for image pull authentication`
+                  }
+                });
+              }
+            }
+          }
+          
+          // Check serviceAccountName references (only for ServiceAccounts)
+          if (resource.kind === 'ServiceAccount') {
+            const serviceAccountName = podSpec.serviceAccountName || 'default';
+            if (serviceAccountName === resource.metadata.name) {
+              dependencies.incoming.push({
+                type: 'serviceAccount',
+                target: workloadId,
+                strength: 'strong',
+                metadata: {
+                  field: workload.kind === 'Pod' ? 'spec.serviceAccountName' : 'spec.template.spec.serviceAccountName',
+                  reason: `${workload.kind} ${workload.metadata.name} uses this ServiceAccount for pod identity and permissions`,
+                  isDefault: serviceAccountName === 'default'
+                }
+              });
+            }
+          }
+        }
+      } catch (error) {
+        log(`Warning: Failed to analyze reverse dependencies for ${resource.kind} ${resource.metadata.name}:`, error.message);
+      }
+    }
+
+  } catch (error) {
+    log(`Warning: Error analyzing dependencies for ${resourceId}:`, error.message);
+  }
+
+  return dependencies;
+};
+
+// Get available API groups for CRD filtering (moved before generic route)
+app.get('/api/dependencies/crd/apigroups', async (req, res) => {
+  log('API groups request for CRD filtering');
+  
+  try {
+    const crdResponse = await apiExtensionsV1Api.listCustomResourceDefinition();
+    const crds = crdResponse.items || [];
+    
+    const apiGroups = new Map();
+    crds.forEach(crd => {
+      const group = crd.spec.group;
+      if (!apiGroups.has(group)) {
+        apiGroups.set(group, {
+          group: group,
+          crdCount: 0,
+          crds: [],
+          versions: new Set()
+        });
+      }
+      
+      const groupInfo = apiGroups.get(group);
+      groupInfo.crdCount++;
+      groupInfo.crds.push({
+        name: crd.metadata.name,
+        kind: crd.spec.names.kind,
+        scope: crd.spec.scope
+      });
+      
+      // Collect available versions
+      crd.spec.versions?.forEach(version => {
+        groupInfo.versions.add(version.name);
+      });
+    });
+    
+    // Convert sets to arrays for JSON serialization
+    const response = Array.from(apiGroups.values()).map(group => ({
+      ...group,
+      versions: Array.from(group.versions)
+    }));
+    
+    log(`Found ${response.length} API groups with ${crds.length} total CRDs`);
+    res.json(response);
+  } catch (error) {
+    log('ERROR: Failed to get API groups:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Enhanced CRD dictionary dependencies graph with multi-API group support (moved before generic route)
+app.get('/api/dependencies/crd/enhanced', async (req, res) => {
+  const apiGroups = req.query.apiGroups ? req.query.apiGroups.split(',') : [];
+  const maxCRDs = parseInt(req.query.maxCRDs || '100');
+  const includeNativeResources = req.query.includeNative !== 'false';
+  const analysisDepth = req.query.depth || 'deep';
+  
+  log(`Enhanced CRD dictionary analysis request - API groups: ${apiGroups.length > 0 ? apiGroups.join(', ') : 'all'}, maxCRDs: ${maxCRDs}`);
+  
+  try {
+    const options = {
+      apiGroups,
+      maxCRDs,
+      includeNativeResources,
+      analysisDepth
+    };
+    
+    const dictionaryGraph = await analyzeCRDSchemasEnhanced(options);
+    res.json(dictionaryGraph);
+  } catch (error) {
+    log('ERROR: Failed to generate enhanced CRD dictionary graph:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get CRD dictionary dependencies graph (legacy endpoint, moved before generic route)
+app.get('/api/dependencies/dictionary', async (req, res) => {
+  log('CRD dictionary analysis request (legacy)');
+  
+  try {
+    const dictionaryGraph = await analyzeCRDSchemas();
+    res.json(dictionaryGraph);
+  } catch (error) {
+    log('ERROR: Failed to generate CRD dictionary graph:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export dependency graph results in various formats matching UI visualization
+app.get('/api/dependencies/graph/export', async (req, res) => {
+  const format = req.query.format || 'json';
+  
+  // Parse UI filters from query parameters (same as UI component)
+  const namespace = req.query.namespace;
+  const includeCustomResources = req.query.includeCustom !== 'false';
+  const maxNodes = parseInt(req.query.maxNodes) || 50;
+  const search = req.query.search;
+  const resourceTypes = req.query.resourceTypes ? req.query.resourceTypes.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const dependencyTypes = req.query.dependencyTypes ? req.query.dependencyTypes.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const showWeakDependencies = req.query.showWeakDependencies !== 'false';
+  
+  // New parameter: CRD-focused analysis
+  const focusOnCRDs = req.query.focusOnCRDs === 'true';
+  const apiGroups = req.query.apiGroups ? req.query.apiGroups.split(',').map(g => g.trim()).filter(Boolean) : [];
+  
+  log(`UI Graph Export request: format=${format}, namespace=${namespace || 'all'}, maxNodes=${maxNodes}, focusOnCRDs=${focusOnCRDs}, apiGroups=${apiGroups.join(',')}, filters=${JSON.stringify({search, resourceTypes, dependencyTypes, showWeakDependencies})}`);
+  
+  try {
+    let graphData;
+    
+    if (focusOnCRDs && apiGroups.length > 0) {
+      // Use CRD schema analysis for CRD-focused exports
+      log('Using CRD-focused analysis for export...');
+      const analysisOptions = {
+        apiGroups,
+        maxCRDs: 9999,
+        includeNativeResources: true,
+        analysisDepth: 'deep'
+      };
+      
+      const crdAnalysis = await analyzeCRDSchemasEnhanced(analysisOptions);
+      
+      graphData = {
+        metadata: {
+          namespace: namespace || 'cluster',
+          nodeCount: crdAnalysis.nodes.length,
+          edgeCount: crdAnalysis.edges.length,
+          timestamp: crdAnalysis.metadata.timestamp,
+          analysisType: 'crd-focused',
+          apiGroups: crdAnalysis.metadata.apiGroups
+        },
+        nodes: crdAnalysis.nodes,
+        edges: crdAnalysis.edges
+      };
+    } else {
+      // Use runtime resource analysis for standard exports
+      log('Using runtime resource analysis for export...');
+      const nodes = [];
+      const edges = [];
+      const resourceMap = new Map();
+      const edgeMap = new Map();
+    
+    // Helper function to add an edge safely (avoiding duplicates) - same as UI graph endpoint
+    const addEdge = (edgeId, source, target, type, strength, metadata) => {
+      if (edgeMap.has(edgeId)) return;
+      
+      const edge = {
+        id: edgeId,
+        source,
+        target,
+        type,
+        strength,
+        metadata
+      };
+      
+      edges.push(edge);
+      edgeMap.set(edgeId, edge);
+    };
+    
+    // Helper function to add a resource as a node - same as UI graph endpoint
+    const addResourceNode = (resource) => {
+      if (!resource || !resource.metadata) return;
+      
+      const kind = resource.kind || 'Unknown';
+      const nodeId = `${kind}/${resource.metadata.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`;
+      
+      if (resourceMap.has(nodeId)) return nodeId;
+      
+      const node = {
+        id: nodeId,
+        kind: kind,
+        name: resource.metadata.name,
+        namespace: resource.metadata.namespace,
+        labels: resource.metadata.labels || {},
+        creationTimestamp: resource.metadata.creationTimestamp,
+        status: resource.status || {}
+      };
+      
+      nodes.push(node);
+      resourceMap.set(nodeId, resource);
+      return nodeId;
+    };
+    
+    // Fetch core resources - same logic as UI graph endpoint
+    const resourceTypes = [
+      { kind: 'Pod', api: coreV1Api, method: 'listNamespacedPod', clusterMethod: 'listPodForAllNamespaces' },
+      { kind: 'Service', api: coreV1Api, method: 'listNamespacedService', clusterMethod: 'listServiceForAllNamespaces' },
+      { kind: 'ConfigMap', api: coreV1Api, method: 'listNamespacedConfigMap', clusterMethod: 'listConfigMapForAllNamespaces' },
+      { kind: 'Secret', api: coreV1Api, method: 'listNamespacedSecret', clusterMethod: 'listSecretForAllNamespaces' },
+      { kind: 'ServiceAccount', api: coreV1Api, method: 'listNamespacedServiceAccount', clusterMethod: 'listServiceAccountForAllNamespaces' },
+      { kind: 'Deployment', api: appsV1Api, method: 'listNamespacedDeployment', clusterMethod: 'listDeploymentForAllNamespaces' },
+      { kind: 'ReplicaSet', api: appsV1Api, method: 'listNamespacedReplicaSet', clusterMethod: 'listReplicaSetForAllNamespaces' },
+      { kind: 'DaemonSet', api: appsV1Api, method: 'listNamespacedDaemonSet', clusterMethod: 'listDaemonSetForAllNamespaces' }
+    ];
+    
+    for (const resourceType of resourceTypes) {
+      try {
+        let resources = [];
+        if (namespace) {
+          const response = await resourceType.api[resourceType.method]({ namespace });
+          resources = response.items || [];
+        } else {
+          const response = await resourceType.api[resourceType.clusterMethod]();
+          resources = response.items || [];
+        }
+        
+        // Add nodes and analyze dependencies
+        for (const resource of resources.slice(0, maxNodes)) {
+          if (!resource.kind) {
+            resource.kind = resourceType.kind;
+          }
+          const nodeId = addResourceNode(resource);
+          const dependencies = await analyzeResourceDependencies(resource);
+          
+          // Add dependency edges - same logic as UI graph endpoint
+          for (const dep of dependencies.outgoing) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${nodeId}-->${dep.target}`;
+              addEdge(edgeId, nodeId, dep.target, dep.type, dep.strength, dep.metadata);
+            }
+          }
+          
+          for (const dep of dependencies.incoming) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${dep.target}-->${nodeId}`;
+              addEdge(edgeId, dep.target, nodeId, dep.type, dep.strength, dep.metadata);
+            }
+          }
+          
+          for (const dep of dependencies.related) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${nodeId}<-->${dep.target}`;
+              addEdge(edgeId, nodeId, dep.target, dep.type, dep.strength, dep.metadata);
+            }
+          }
+        }
+      } catch (error) {
+        log(`Warning: Failed to fetch ${resourceType.kind} resources:`, error.message);
+      }
+    }
+    
+    // Add cluster-scoped resources if not filtering by namespace
+    if (!namespace) {
+      try {
+        const nodesResponse = await coreV1Api.listNode();
+        const nodes_k8s = nodesResponse.items || [];
+        for (const node of nodes_k8s.slice(0, MAX_NODES_TO_INCLUDE)) {
+          if (!node.kind) {
+            node.kind = 'Node';
+          }
+          addResourceNode(node);
+        }
+      } catch (error) {
+        log('Warning: Failed to fetch nodes:', error.message);
+      }
+    }
+    
+    // Helper function to check if pod labels match a selector - same as UI graph endpoint
+    const podMatchesSelector = (podLabels, selectorLabels) => {
+      if (!podLabels || !selectorLabels) return false;
+      
+      for (const [key, value] of Object.entries(selectorLabels)) {
+        if (podLabels[key] !== value) {
+          return false;
+        }
+      }
+      return true;
+    };
+    
+    // Second pass: resolve selector matches - same as UI graph endpoint
+    const servicePods = nodes.filter(node => node.kind === 'Service');
+    const pods = nodes.filter(node => node.kind === 'Pod');
+    
+    for (const serviceNode of servicePods) {
+      const service = resourceMap.get(serviceNode.id);
+      if (service && service.spec && service.spec.selector) {
+        const selectorLabels = service.spec.selector;
+        
+        for (const podNode of pods) {
+          const pod = resourceMap.get(podNode.id);
+          if (pod && pod.metadata && pod.metadata.labels && 
+              pod.metadata.namespace === service.metadata.namespace) {
+            if (podMatchesSelector(pod.metadata.labels, selectorLabels)) {
+              const edgeId = `${serviceNode.id}-->${podNode.id}`;
+              addEdge(edgeId, serviceNode.id, podNode.id, 'service', 'strong', {
+                field: 'spec.selector',
+                reason: `Service ${service.metadata.name} targets Pod ${pod.metadata.name} via label selector`,
+                selector: selectorLabels
+              });
+            }
+          }
+        }
+      }
+    }
+    
+      // Clean up selector placeholder edges
+      const filteredEdges = edges.filter(edge => edge.target !== '*selector-match*');
+      
+      graphData = {
+        metadata: {
+          namespace: namespace || 'cluster',
+          nodeCount: nodes.length,
+          edgeCount: filteredEdges.length,
+          timestamp: new Date().toISOString(),
+          analysisType: 'runtime-resources'
+        },
+        nodes,
+        edges: filteredEdges
+      };
+    }
+    
+    // Set appropriate headers based on format
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const baseFilename = `dependency-graph-${timestamp}`;
+    
+    switch (format) {
+      case 'json':
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.json"`);
+        res.json(graphData);
+        break;
+        
+      case 'csv':
+        const csvLines = [];
+        csvLines.push('=== NODES (RESOURCES) ===');
+        csvLines.push('ID,Kind,Name,Namespace,Labels Count,Creation Time');
+        
+        nodes.forEach(node => {
+          const labelsCount = Object.keys(node.labels || {}).length;
+          csvLines.push(`"${node.id}","${node.kind}","${node.name}","${node.namespace || ''}",${labelsCount},"${node.creationTimestamp || ''}"`); 
+        });
+        
+        csvLines.push('');
+        csvLines.push('=== EDGES (DEPENDENCIES) ===');
+        csvLines.push('Source,Target,Type,Strength,Reason');
+        
+        filteredEdges.forEach(edge => {
+          const reason = (edge.metadata?.reason || '').replace(/"/g, '""');
+          csvLines.push(`"${edge.source}","${edge.target}","${edge.type}","${edge.strength}","${reason}"`);
+        });
+        
+        const csvData = csvLines.join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.csv"`);
+        res.send(csvData);
+        break;
+        
+      case 'markdown':
+        const lines = [];
+        
+        lines.push('# Kubernetes Resource Dependency Graph Export');
+        lines.push('');
+        lines.push(`**Generated:** ${new Date().toISOString()}`);
+        lines.push(`**Cluster Scope:** ${namespace || 'All namespaces'}`);
+        lines.push(`**Total Resources:** ${nodes.length}`);
+        lines.push(`**Total Dependencies:** ${filteredEdges.length}`);
+        lines.push('');
+        
+        // Add the Mermaid diagram matching the UI
+        lines.push('## Dependency Visualization');
+        lines.push('');
+        lines.push('This diagram shows the same dependency graph as displayed in the UI:');
+        lines.push('');
+        
+        // Apply the same filters as the UI would
+        const filters = {
+          search,
+          resourceTypes,
+          dependencyTypes,
+          showWeakDependencies,
+          maxNodes
+        };
+        
+        const mermaidLines = generateMermaidGraphFromUI(graphData, filters);
+        lines.push(...mermaidLines);
+        lines.push('');
+        
+        // Add statistics
+        lines.push('## Summary');
+        lines.push('');
+        const nodesByKind = {};
+        nodes.forEach(node => {
+          nodesByKind[node.kind] = (nodesByKind[node.kind] || 0) + 1;
+        });
+        
+        lines.push('### Resources by Type');
+        Object.entries(nodesByKind).forEach(([kind, count]) => {
+          lines.push(`- **${kind}:** ${count}`);
+        });
+        lines.push('');
+        
+        const edgesByType = {};
+        filteredEdges.forEach(edge => {
+          edgesByType[edge.type] = (edgesByType[edge.type] || 0) + 1;
+        });
+        
+        lines.push('### Dependencies by Type');
+        Object.entries(edgesByType).forEach(([type, count]) => {
+          lines.push(`- **${type}:** ${count}`);
+        });
+        lines.push('');
+        
+        // Add detailed tables if requested
+        lines.push('## Resource Details');
+        lines.push('');
+        lines.push('| Kind | Name | Namespace | Labels | Created |');
+        lines.push('|------|------|-----------|--------|---------|');
+        
+        nodes.slice(0, 100).forEach(node => {
+          const labelsCount = Object.keys(node.labels || {}).length;
+          const created = node.creationTimestamp ? new Date(node.creationTimestamp).toLocaleDateString() : 'Unknown';
+          lines.push(`| ${node.kind} | ${node.name} | ${node.namespace || 'cluster'} | ${labelsCount} | ${created} |`);
+        });
+        
+        if (nodes.length > 100) {
+          lines.push('');
+          lines.push(`*Showing first 100 of ${nodes.length} resources*`);
+        }
+        
+        lines.push('');
+        lines.push('## Dependency Details');
+        lines.push('');
+        lines.push('| Source | Target | Type | Strength | Description |');
+        lines.push('|--------|--------|------|----------|-------------|');
+        
+        filteredEdges.slice(0, 100).forEach(edge => {
+          const reason = (edge.metadata?.reason || 'No description').replace(/\|/g, '\\|');
+          lines.push(`| ${edge.source} | ${edge.target} | ${edge.type} | ${edge.strength} | ${reason} |`);
+        });
+        
+        if (filteredEdges.length > 100) {
+          lines.push('');
+          lines.push(`*Showing first 100 of ${filteredEdges.length} dependencies*`);
+        }
+        
+        const markdownData = lines.join('\n');
+        res.setHeader('Content-Type', 'text/markdown');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.md"`);
+        res.send(markdownData);
+        break;
+        
+      default:
+        res.setHeader('Content-Type', 'application/json');
+        res.json(graphData);
+    }
+    
+    log(`UI Graph Export complete: ${format} format, ${nodes.length} nodes, ${filteredEdges.length} edges`);
+    
+  } catch (error) {
+    log('ERROR: Failed to export UI dependency graph:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export CRD analysis results in various formats (must be before generic route)
+app.get('/api/dependencies/crd/export', async (req, res) => {
+  const format = req.query.format || 'json';
+  const includeRawGraph = req.query.includeRawGraph === 'true';
+  const includeSchemaDetails = req.query.includeSchemaDetails === 'true';
+  const includeDependencyMetadata = req.query.includeDependencyMetadata === 'true';
+  
+  log(`Export request: format=${format}, includeRawGraph=${includeRawGraph}, includeSchemaDetails=${includeSchemaDetails}`);
+  
+  try {
+    // Get the analysis options from query parameters (same as enhanced analysis)
+    const apiGroups = req.query.apiGroups ? req.query.apiGroups.split(',').map(g => g.trim()).filter(Boolean) : [];
+    const crds = req.query.crds ? req.query.crds.split(',').map(c => c.trim()).filter(Boolean) : [];
+    const maxCRDs = parseInt(req.query.maxCRDs) || 9999; // Remove limit for export
+    const includeNativeResources = req.query.includeNative !== 'false';
+    const analysisDepth = req.query.depth || 'deep';
+    
+    // Perform the analysis to get data for export
+    const analysisOptions = {
+      apiGroups: apiGroups.length > 0 ? apiGroups : undefined,
+      crds: crds.length > 0 ? crds : undefined,
+      maxCRDs,
+      includeNativeResources,
+      analysisDepth
+    };
+    
+    const analysisResult = await analyzeCRDSchemasEnhanced(analysisOptions);
+    
+    // Transform analysis result into export format
+    const exportData = await generateExportData(analysisResult, analysisOptions, {
+      format,
+      includeRawGraph,
+      includeSchemaDetails,
+      includeDependencyMetadata
+    });
+    
+    // Set appropriate headers based on format
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const baseFilename = `crd-analysis-${timestamp}`;
+    
+    switch (format) {
+      case 'json':
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.json"`);
+        res.json(exportData);
+        break;
+        
+      case 'csv':
+        const csvData = await generateCSVExport(exportData);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.csv"`);
+        res.send(csvData);
+        break;
+        
+      case 'markdown':
+        const markdownData = await generateMarkdownExport(exportData);
+        res.setHeader('Content-Type', 'text/markdown');
+        res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.md"`);
+        res.send(markdownData);
+        break;
+        
+      default:
+        res.setHeader('Content-Type', 'application/json');
+        res.json(exportData);
+    }
+    
+    log(`Export complete: ${format} format, ${exportData.crdSchemas?.length || 0} CRDs, ${exportData.dependencies?.length || 0} dependencies`);
+    
+  } catch (error) {
+    log('ERROR: Failed to export CRD analysis:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get resource dependencies for a specific resource
+app.get('/api/dependencies/:kind/:name', async (req, res) => {
+  const { kind, name } = req.params;
+  const namespace = req.query.namespace;
+  log(`Resource dependencies request for ${kind}/${name}${namespace ? ` in namespace ${namespace}` : ''}`);
+
+  try {
+    let resource = null;
+    
+    // Fetch the specific resource based on kind and name
+    switch (kind.toLowerCase()) {
+      case 'pod':
+        if (!namespace) throw new Error('Namespace required for Pod');
+        resource = await coreV1Api.readNamespacedPod({ name, namespace });
+        break;
+      case 'service':
+        if (!namespace) throw new Error('Namespace required for Service');
+        resource = await coreV1Api.readNamespacedService({ name, namespace });
+        break;
+      case 'deployment':
+        if (!namespace) throw new Error('Namespace required for Deployment');
+        resource = await appsV1Api.readNamespacedDeployment({ name, namespace });
+        break;
+      case 'configmap':
+        if (!namespace) throw new Error('Namespace required for ConfigMap');
+        resource = await coreV1Api.readNamespacedConfigMap({ name, namespace });
+        break;
+      case 'secret':
+        if (!namespace) throw new Error('Namespace required for Secret');
+        resource = await coreV1Api.readNamespacedSecret({ name, namespace });
+        break;
+      case 'node':
+        resource = await coreV1Api.readNode({ name });
+        break;
+      case 'namespace':
+        resource = await coreV1Api.readNamespace({ name });
+        break;
+      case 'serviceaccount':
+      case 'ServiceAccount':
+        if (!namespace) throw new Error('Namespace required for ServiceAccount');
+        resource = await coreV1Api.readNamespacedServiceAccount({ name, namespace });
+        break;
+      default:
+        throw new Error(`Resource kind '${kind}' not supported yet`);
+    }
+
+    if (!resource) {
+      return res.status(404).json({ error: `Resource ${kind}/${name} not found` });
+    }
+    
+    // Ensure resource has kind property set
+    if (!resource.kind) {
+      resource.kind = kind.charAt(0).toUpperCase() + kind.slice(1).toLowerCase();
+      // Handle special cases
+      if (kind.toLowerCase() === 'serviceaccount') {
+        resource.kind = 'ServiceAccount';
+      }
+    }
+
+    // Analyze dependencies
+    const dependencies = await analyzeResourceDependencies(resource);
+    
+    const response = {
+      resource: {
+        kind: resource.kind,
+        name: resource.metadata?.name,
+        namespace: resource.metadata?.namespace,
+        uid: resource.metadata?.uid,
+        labels: resource.metadata?.labels,
+        creationTimestamp: resource.metadata?.creationTimestamp
+      },
+      dependencies
+    };
+    
+    log(`Found ${dependencies.outgoing.length + dependencies.incoming.length + dependencies.related.length} dependencies for ${kind}/${name}`);
+    res.json(response);
+  } catch (error) {
+    log(`ERROR: Failed to get dependencies for ${kind}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Enhanced CRD Dictionary Analysis with multi-API group support and efficient OpenAPI schema analysis
+const analyzeCRDSchemasEnhanced = async (options = {}) => {
+  try {
+    const { 
+      apiGroups = [], 
+      maxCRDs = parseInt(process.env.MAX_CRD_ANALYSIS || '100'),
+      includeNativeResources = true,
+      analysisDepth = 'deep'
+    } = options;
+    
+    log(`Analyzing CRD schemas for dictionary relationships... (API groups: ${apiGroups.length > 0 ? apiGroups.join(', ') : 'all'}, maxCRDs: ${maxCRDs})`);
+    const nodes = [];
+    const edges = [];
+    const edgeMap = new Map();
+    const apiGroupStats = new Map();
+    
+    // Helper function to add an edge safely (avoiding duplicates)
+    const addEdge = (edgeId, source, target, type, strength, metadata) => {
+      if (edgeMap.has(edgeId)) return;
+      
+      const edge = {
+        id: edgeId,
+        source,
+        target,
+        type,
+        strength,
+        metadata
+      };
+      
+      edges.push(edge);
+      edgeMap.set(edgeId, edge);
+    };
+    
+    // Get all CRDs
+    const crdResponse = await apiExtensionsV1Api.listCustomResourceDefinition();
+    let crds = crdResponse.items || [];
+    log(`Found ${crds.length} CRDs to analyze`);
+    
+    // Filter by API groups if specified
+    if (apiGroups.length > 0) {
+      crds = crds.filter(crd => apiGroups.includes(crd.spec.group));
+      log(`Filtered to ${crds.length} CRDs matching API groups: ${apiGroups.join(', ')}`);
+    }
+    
+    // Build API group statistics
+    crds.forEach(crd => {
+      const group = crd.spec.group;
+      if (!apiGroupStats.has(group)) {
+        apiGroupStats.set(group, { count: 0, crds: [] });
+      }
+      const groupStats = apiGroupStats.get(group);
+      groupStats.count++;
+      groupStats.crds.push(crd.metadata.name);
+    });
+    
+    // Enhanced core Kubernetes resource types with API group information
+    const coreResourceTypes = [
+      { name: 'Pod', group: 'core', version: 'v1' },
+      { name: 'Service', group: 'core', version: 'v1' },
+      { name: 'ConfigMap', group: 'core', version: 'v1' },
+      { name: 'Secret', group: 'core', version: 'v1' },
+      { name: 'PersistentVolumeClaim', group: 'core', version: 'v1' },
+      { name: 'ServiceAccount', group: 'core', version: 'v1' },
+      { name: 'Deployment', group: 'apps', version: 'v1' },
+      { name: 'ReplicaSet', group: 'apps', version: 'v1' },
+      { name: 'DaemonSet', group: 'apps', version: 'v1' },
+      { name: 'StatefulSet', group: 'apps', version: 'v1' },
+      { name: 'Job', group: 'batch', version: 'v1' },
+      { name: 'CronJob', group: 'batch', version: 'v1' },
+      { name: 'Role', group: 'rbac.authorization.k8s.io', version: 'v1' },
+      { name: 'ClusterRole', group: 'rbac.authorization.k8s.io', version: 'v1' },
+      { name: 'RoleBinding', group: 'rbac.authorization.k8s.io', version: 'v1' },
+      { name: 'ClusterRoleBinding', group: 'rbac.authorization.k8s.io', version: 'v1' },
+      { name: 'Ingress', group: 'networking.k8s.io', version: 'v1' },
+      { name: 'NetworkPolicy', group: 'networking.k8s.io', version: 'v1' },
+      { name: 'HorizontalPodAutoscaler', group: 'autoscaling', version: 'v2' },
+      { name: 'VerticalPodAutoscaler', group: 'autoscaling.k8s.io', version: 'v1' }
+    ];
+    
+    // Add core resource type nodes (if including native resources)
+    if (includeNativeResources) {
+      coreResourceTypes.forEach(resourceType => {
+        const nodeId = `core-${resourceType.name}`;
+        nodes.push({
+          id: nodeId,
+          kind: resourceType.name,
+          name: resourceType.name,
+          namespace: undefined,
+          labels: { 
+            'dictionary.type': 'core-resource-type',
+            'api.group': resourceType.group,
+            'api.version': resourceType.version
+          },
+          creationTimestamp: undefined,
+          status: { phase: 'Available' }
+        });
+      });
+    }
+    
+    // Enhanced schema analysis with better efficiency
+    const analyzeSchemaPropertiesEfficient = (schema, path = '', depth = 0, maxDepth = 10) => {
+      const references = [];
+      
+      if (!schema || typeof schema !== 'object' || depth > maxDepth) return references;
+      
+      // Check for direct $ref references
+      if (schema.$ref) {
+        references.push({
+          type: 'ref',
+          path: path,
+          ref: schema.$ref,
+          strength: 'strong'
+        });
+      }
+      
+      // Check properties object
+      if (schema.properties && typeof schema.properties === 'object') {
+        for (const [propName, propSchema] of Object.entries(schema.properties)) {
+          if (propSchema && typeof propSchema === 'object') {
+            const currentPath = path ? `${path}.${propName}` : propName;
+            
+            // Check for resource type references in field names and descriptions
+            const description = propSchema.description || '';
+            const fieldName = propName.toLowerCase();
+            
+            coreResourceTypes.forEach(resourceType => {
+              const resourceTypeLower = resourceType.name.toLowerCase();
+              
+              // More sophisticated matching patterns
+              const patterns = [
+                resourceTypeLower,
+                `${resourceTypeLower}ref`,
+                `${resourceTypeLower}name`,
+                `${resourceTypeLower}selector`,
+                `${resourceTypeLower}template`,
+                `${resourceTypeLower}spec`
+              ];
+              
+              const matchesField = patterns.some(pattern => fieldName.includes(pattern));
+              const matchesDescription = description.toLowerCase().includes(resourceTypeLower);
+              
+              if (matchesField || matchesDescription) {
+                references.push({
+                  type: 'schema-field',
+                  path: currentPath,
+                  resourceType: resourceType.name,
+                  strength: matchesField ? 'strong' : 'weak',
+                  reason: matchesField ? 
+                    `Field name '${propName}' references ${resourceType.name}` :
+                    `Description mentions ${resourceType.name}`
+                });
+              }
+            });
+            
+            // Recursively analyze nested properties
+            const nestedRefs = analyzeSchemaPropertiesEfficient(propSchema, currentPath, depth + 1, maxDepth);
+            references.push(...nestedRefs);
+          }
+        }
+      }
+      
+      // Handle array items
+      if (schema.items) {
+        const arrayRefs = analyzeSchemaPropertiesEfficient(schema.items, `${path}[]`, depth + 1, maxDepth);
+        references.push(...arrayRefs);
+      }
+      
+      // Handle oneOf, anyOf, allOf
+      ['oneOf', 'anyOf', 'allOf'].forEach(keyword => {
+        if (schema[keyword] && Array.isArray(schema[keyword])) {
+          schema[keyword].forEach((subSchema, index) => {
+            const subRefs = analyzeSchemaPropertiesEfficient(subSchema, `${path}.${keyword}[${index}]`, depth + 1, maxDepth);
+            references.push(...subRefs);
+          });
+        }
+      });
+      
+      return references;
+    };
+    
+    // Analyze each CRD with enhanced efficiency
+    const crdsToAnalyze = crds.slice(0, maxCRDs);
+    for (const crd of crdsToAnalyze) {
+      try {
+        const crdName = crd.metadata.name;
+        const crdGroup = crd.spec.group;
+        const crdNodeId = `crd-${crdName}`;
+        
+        // Add CRD definition node with enhanced metadata
+        nodes.push({
+          id: crdNodeId,
+          kind: 'CustomResourceDefinition',
+          name: crdName,
+          namespace: undefined,
+          labels: { 
+            'dictionary.type': 'crd-definition',
+            'api.group': crdGroup,
+            'crd.kind': crd.spec.names.kind,
+            'crd.scope': crd.spec.scope,
+            ...crd.metadata.labels
+          },
+          creationTimestamp: crd.metadata.creationTimestamp,
+          status: { phase: 'Available' }
+        });
+        
+        // Enhanced CRD schema analysis for resource references
+        const versions = crd.spec.versions || [];
+        for (const version of versions) {
+          if (version.schema?.openAPIV3Schema) {
+            const schema = version.schema.openAPIV3Schema;
+            
+            // Use enhanced schema analysis
+            const references = analyzeSchemaPropertiesEfficient(schema, 'spec');
+            
+            // Process found references
+            references.forEach(ref => {
+              if (ref.type === 'schema-field' && ref.resourceType) {
+                const edgeId = `${crdNodeId}-refs-${ref.resourceType}-${ref.path}`;
+                addEdge(
+                  edgeId,
+                  crdNodeId,
+                  `core-${ref.resourceType}`,
+                  'custom',
+                  ref.strength,
+                  {
+                    field: ref.path,
+                    reason: ref.reason,
+                    schemaVersion: version.name,
+                    referenceType: 'schema-field',
+                    analysisType: 'enhanced'
+                  }
+                );
+              } else if (ref.type === 'ref') {
+                // Handle direct $ref references
+                const edgeId = `${crdNodeId}-ref-${ref.path}`;
+                addEdge(
+                  edgeId,
+                  crdNodeId,
+                  `ref-${ref.ref}`,
+                  'custom',
+                  'strong',
+                  {
+                    field: ref.path,
+                    reason: `Direct $ref reference: ${ref.ref}`,
+                    schemaVersion: version.name,
+                    referenceType: 'direct-ref'
+                  }
+                );
+              }
+            });
+          }
+        }
+        
+        // Enhanced CRD-to-CRD reference detection
+        for (const otherCrd of crdsToAnalyze) {
+          if (otherCrd.metadata.name === crdName) continue;
+          
+          const otherCrdName = otherCrd.metadata.name;
+          const otherCrdNodeId = `crd-${otherCrdName}`;
+          const otherCrdKind = otherCrd.spec.names.kind;
+          const otherCrdGroup = otherCrd.spec.group;
+          
+          // Enhanced CRD-to-CRD reference detection
+          const versions = crd.spec.versions || [];
+          for (const version of versions) {
+            const schema = version.schema?.openAPIV3Schema;
+            if (!schema) continue;
+            
+            // Use efficient schema analysis for CRD references
+            const references = analyzeSchemaPropertiesEfficient(schema);
+            
+            // Check for references to the other CRD
+            const hasReference = references.some(ref => 
+              ref.reason && (
+                ref.reason.toLowerCase().includes(otherCrdKind.toLowerCase()) ||
+                ref.reason.toLowerCase().includes(otherCrdName.toLowerCase())
+              )
+            );
+            
+            // Also check schema string for backwards compatibility
+            const schemaStr = JSON.stringify(schema).toLowerCase();
+            const hasSchemaReference = schemaStr.includes(otherCrdKind.toLowerCase()) ||
+                                      schemaStr.includes(otherCrdName.toLowerCase()) ||
+                                      schemaStr.includes(otherCrdGroup.toLowerCase());
+            
+            if (hasReference || hasSchemaReference) {
+              const edgeId = `${crdNodeId}-refs-${otherCrdNodeId}`;
+              addEdge(
+                edgeId,
+                crdNodeId,
+                otherCrdNodeId,
+                'custom',
+                'strong',
+                {
+                  reason: `CRD schema references ${otherCrdKind} (${otherCrdGroup})`,
+                  schemaVersion: version.name,
+                  referenceType: 'crd-to-crd',
+                  analysisType: hasReference ? 'enhanced' : 'legacy'
+                }
+              );
+              break;
+            }
+          }
+        }
+        
+      } catch (crdError) {
+        log(`Warning: Failed to analyze CRD ${crd.metadata.name}:`, crdError.message);
+      }
+    }
+    
+    log(`Enhanced CRD dictionary analysis complete: ${nodes.length} nodes, ${edges.length} relationships`);
+    log(`API group statistics:`, Array.from(apiGroupStats.entries()).map(([group, stats]) => `${group}: ${stats.count} CRDs`));
+    
+    return {
+      metadata: {
+        namespace: 'dictionary-analysis',
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        timestamp: new Date().toISOString(),
+        apiGroups: Array.from(apiGroupStats.keys()),
+        apiGroupStats: Object.fromEntries(apiGroupStats),
+        analysisOptions: options
+      },
+      nodes,
+      edges
+    };
+    
+  } catch (error) {
+    log('ERROR: Failed to analyze CRD schemas:', error.message);
+    throw error;
+  }
+};
+
+// Legacy function for backwards compatibility
+const analyzeCRDSchemas = async () => {
+  return await analyzeCRDSchemasEnhanced();
+};
+
+
+// Get dependency graph for a namespace or entire cluster
+app.get('/api/dependencies/graph', async (req, res) => {
+  const namespace = req.query.namespace;
+  const includeCustomResources = req.query.includeCustom === 'true';
+  const maxNodes = parseInt(req.query.maxNodes) || MAX_RESOURCES_PER_TYPE;
+  log(`Dependency graph request for ${namespace ? `namespace: ${namespace}` : 'entire cluster'} (maxNodes: ${maxNodes})`);
+
+  try {
+    const nodes = [];
+    const edges = [];
+    const resourceMap = new Map();
+    const edgeMap = new Map(); // Track edges to prevent duplicates
+    
+    // Helper function to add an edge safely (avoiding duplicates)
+    const addEdge = (edgeId, source, target, type, strength, metadata) => {
+      if (edgeMap.has(edgeId)) return; // Skip duplicates
+      
+      const edge = {
+        id: edgeId,
+        source,
+        target,
+        type,
+        strength,
+        metadata
+      };
+      
+      edges.push(edge);
+      edgeMap.set(edgeId, edge);
+    };
+    
+    // Helper function to add a resource as a node
+    const addResourceNode = (resource) => {
+      if (!resource || !resource.metadata) return;
+      
+      // Ensure we have a kind, fallback to 'Unknown' if missing
+      const kind = resource.kind || 'Unknown';
+      const nodeId = `${kind}/${resource.metadata.name}${resource.metadata.namespace ? `@${resource.metadata.namespace}` : ''}`;
+      
+      if (resourceMap.has(nodeId)) return nodeId;
+      
+      const node = {
+        id: nodeId,
+        kind: kind,
+        name: resource.metadata.name,
+        namespace: resource.metadata.namespace,
+        labels: resource.metadata.labels || {},
+        creationTimestamp: resource.metadata.creationTimestamp,
+        status: resource.status || {}
+      };
+      
+      nodes.push(node);
+      resourceMap.set(nodeId, resource);
+      return nodeId;
+    };
+    
+    // Fetch core resources
+    const resourceTypes = [
+      { kind: 'Pod', api: coreV1Api, method: 'listNamespacedPod', clusterMethod: 'listPodForAllNamespaces' },
+      { kind: 'Service', api: coreV1Api, method: 'listNamespacedService', clusterMethod: 'listServiceForAllNamespaces' },
+      { kind: 'ConfigMap', api: coreV1Api, method: 'listNamespacedConfigMap', clusterMethod: 'listConfigMapForAllNamespaces' },
+      { kind: 'Secret', api: coreV1Api, method: 'listNamespacedSecret', clusterMethod: 'listSecretForAllNamespaces' },
+      { kind: 'ServiceAccount', api: coreV1Api, method: 'listNamespacedServiceAccount', clusterMethod: 'listServiceAccountForAllNamespaces' },
+      { kind: 'Deployment', api: appsV1Api, method: 'listNamespacedDeployment', clusterMethod: 'listDeploymentForAllNamespaces' },
+      { kind: 'ReplicaSet', api: appsV1Api, method: 'listNamespacedReplicaSet', clusterMethod: 'listReplicaSetForAllNamespaces' },
+      { kind: 'DaemonSet', api: appsV1Api, method: 'listNamespacedDaemonSet', clusterMethod: 'listDaemonSetForAllNamespaces' }
+    ];
+    
+    for (const resourceType of resourceTypes) {
+      try {
+        let resources = [];
+        if (namespace) {
+          const response = await resourceType.api[resourceType.method]({ namespace });
+          resources = response.items || [];
+        } else {
+          const response = await resourceType.api[resourceType.clusterMethod]();
+          resources = response.items || [];
+        }
+        
+    // Add nodes and analyze dependencies
+        for (const resource of resources.slice(0, maxNodes)) { // Configurable limit for performance
+          // Ensure resource has kind property set
+          if (!resource.kind) {
+            resource.kind = resourceType.kind;
+          }
+          const nodeId = addResourceNode(resource);
+          const dependencies = await analyzeResourceDependencies(resource);
+          
+          // Add dependency edges
+          // Process outgoing dependencies
+          for (const dep of dependencies.outgoing) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${nodeId}-->${dep.target}`;
+              addEdge(edgeId, nodeId, dep.target, dep.type, dep.strength, dep.metadata);
+            }
+          }
+          
+          // Process incoming dependencies (these represent resources that depend on this resource)
+          // The edge should be from the dependent resource TO this resource
+          for (const dep of dependencies.incoming) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${dep.target}-->${nodeId}`;
+              addEdge(edgeId, dep.target, nodeId, dep.type, dep.strength, dep.metadata);
+            }
+          }
+          
+          // Process related dependencies (bidirectional, weak)
+          for (const dep of dependencies.related) {
+            if (dep.target && dep.target !== '*pods-matching-selector*') {
+              const edgeId = `${nodeId}<-->${dep.target}`;
+              addEdge(edgeId, nodeId, dep.target, dep.type, dep.strength, dep.metadata);
+            }
+          }
+        }
+      } catch (error) {
+        log(`Warning: Failed to fetch ${resourceType.kind} resources:`, error.message);
+      }
+    }
+    
+    // Add cluster-scoped resources if not filtering by namespace
+    if (!namespace) {
+      try {
+        const nodesResponse = await coreV1Api.listNode();
+        const nodes_k8s = nodesResponse.items || [];
+        for (const node of nodes_k8s.slice(0, MAX_NODES_TO_INCLUDE)) {
+          // Ensure node resource has kind property set
+          if (!node.kind) {
+            node.kind = 'Node';
+          }
+          addResourceNode(node);
+        }
+      } catch (error) {
+        log('Warning: Failed to fetch nodes:', error.message);
+      }
+    }
+    
+    // Helper function to check if pod labels match a selector
+    const podMatchesSelector = (podLabels, selectorLabels) => {
+      if (!podLabels || !selectorLabels) return false;
+      
+      // Check if all selector labels match pod labels
+      for (const [key, value] of Object.entries(selectorLabels)) {
+        if (podLabels[key] !== value) {
+          return false;
+        }
+      }
+      return true;
+    };
+    
+    // Second pass: resolve selector matches and add reverse dependencies
+    const servicesToPods = new Map();
+    const configMapToPods = new Map();
+    const secretToPods = new Map();
+    const serviceAccountToPods = new Map();
+    
+    // Build lookup maps for reverse dependencies
+    for (const edge of edges) {
+      if (edge.type === 'environment' || edge.type === 'configMap') {
+        if (edge.target.startsWith('ConfigMap/')) {
+          if (!configMapToPods.has(edge.target)) {
+            configMapToPods.set(edge.target, []);
+          }
+          configMapToPods.get(edge.target).push(edge.source);
+        }
+      }
+      if (edge.type === 'environment' || edge.type === 'secret' || edge.type === 'imagePullSecret') {
+        if (edge.target.startsWith('Secret/')) {
+          if (!secretToPods.has(edge.target)) {
+            secretToPods.set(edge.target, []);
+          }
+          secretToPods.get(edge.target).push(edge.source);
+        }
+      }
+      if (edge.type === 'serviceAccount') {
+        if (edge.target.startsWith('ServiceAccount/')) {
+          if (!serviceAccountToPods.has(edge.target)) {
+            serviceAccountToPods.set(edge.target, []);
+          }
+          serviceAccountToPods.get(edge.target).push(edge.source);
+        }
+      }
+    }
+    
+    // Find Service->Pod relationships by resolving selectors
+    const servicePods = nodes.filter(node => node.kind === 'Service');
+    const pods = nodes.filter(node => node.kind === 'Pod');
+    
+    for (const serviceNode of servicePods) {
+      const service = resourceMap.get(serviceNode.id);
+      if (service && service.spec && service.spec.selector) {
+        const selectorLabels = service.spec.selector;
+        const matchingPods = [];
+        
+        for (const podNode of pods) {
+          const pod = resourceMap.get(podNode.id);
+          if (pod && pod.metadata && pod.metadata.labels && 
+              pod.metadata.namespace === service.metadata.namespace) {
+            if (podMatchesSelector(pod.metadata.labels, selectorLabels)) {
+              matchingPods.push(podNode.id);
+              
+              // Add Service->Pod edge
+              const edgeId = `${serviceNode.id}-->${podNode.id}`;
+              addEdge(edgeId, serviceNode.id, podNode.id, 'service', 'strong', {
+                field: 'spec.selector',
+                reason: `Service ${service.metadata.name} targets Pod ${pod.metadata.name} via label selector`,
+                selector: selectorLabels
+              });
+            }
+          }
+        }
+        
+        servicesToPods.set(serviceNode.id, matchingPods);
+      }
+    }
+    
+    // Clean up selector placeholder edges
+    const filteredEdges = edges.filter(edge => edge.target !== '*selector-match*');
+    
+    const response = {
+      metadata: {
+        namespace: namespace || 'cluster',
+        nodeCount: nodes.length,
+        edgeCount: filteredEdges.length,
+        timestamp: new Date().toISOString(),
+        serviceToPodMappings: servicesToPods.size,
+        configMapDependencies: configMapToPods.size,
+        secretDependencies: secretToPods.size,
+        serviceAccountDependencies: serviceAccountToPods.size
+      },
+      nodes,
+      edges: filteredEdges
+    };
+    
+    log(`Generated dependency graph: ${nodes.length} nodes, ${filteredEdges.length} edges (${servicesToPods.size} Service->Pod mappings, ${serviceAccountToPods.size} ServiceAccount dependencies)`);
+    res.json(response);
+  } catch (error) {
+    log(`ERROR: Failed to generate dependency graph:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to generate structured export data
+const generateExportData = async (analysisResult, analysisOptions, exportOptions) => {
+  const { nodes, edges, metadata } = analysisResult;
+  
+  // Calculate statistics
+  const crdNodes = nodes.filter(node => node.labels['dictionary.type'] === 'crd-definition');
+  const coreResourceNodes = nodes.filter(node => node.labels['dictionary.type'] === 'core-resource-type');
+  const strongEdges = edges.filter(edge => edge.strength === 'strong');
+  const weakEdges = edges.filter(edge => edge.strength === 'weak');
+  
+  // Count dependencies per CRD for complexity metrics
+  const dependenciesPerCRD = {};
+  edges.forEach(edge => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    if (sourceNode && sourceNode.labels['dictionary.type'] === 'crd-definition') {
+      dependenciesPerCRD[edge.source] = (dependenciesPerCRD[edge.source] || 0) + 1;
+    }
+  });
+  
+  const dependencyCounts = Object.values(dependenciesPerCRD);
+  const avgDependencies = dependencyCounts.length > 0 ? dependencyCounts.reduce((a, b) => a + b, 0) / dependencyCounts.length : 0;
+  const maxDependencies = dependencyCounts.length > 0 ? Math.max(...dependencyCounts) : 0;
+  const isolatedCRDs = crdNodes.filter(node => !dependenciesPerCRD[node.id]).length;
+  
+  // Group nodes by type for statistics
+  const nodesByType = {};
+  nodes.forEach(node => {
+    const type = node.kind || node.labels['dictionary.type'] || 'Unknown';
+    nodesByType[type] = (nodesByType[type] || 0) + 1;
+  });
+  
+  // Group edges by type for statistics
+  const edgesByType = {};
+  edges.forEach(edge => {
+    edgesByType[edge.type] = (edgesByType[edge.type] || 0) + 1;
+  });
+  
+  // Generate API group summaries
+  const apiGroupMap = new Map();
+  crdNodes.forEach(node => {
+    const group = node.labels['api-group'] || 'unknown';
+    if (!apiGroupMap.has(group)) {
+      apiGroupMap.set(group, {
+        name: group,
+        crdCount: 0,
+        versions: new Set(),
+        crds: [],
+        dependencies: { incoming: 0, outgoing: 0, internal: 0 }
+      });
+    }
+    const groupData = apiGroupMap.get(group);
+    groupData.crdCount++;
+    groupData.crds.push({
+      name: node.name,
+      kind: node.kind || 'Unknown',
+      scope: node.labels['scope'] || 'Namespaced',
+      versions: [node.labels['version'] || 'v1']
+    });
+    if (node.labels['version']) {
+      groupData.versions.add(node.labels['version']);
+    }
+  });
+  
+  // Calculate dependencies for API groups
+  edges.forEach(edge => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    if (sourceNode && targetNode) {
+      const sourceGroup = sourceNode.labels['api-group'] || 'unknown';
+      const targetGroup = targetNode.labels['api-group'] || 'unknown';
+      
+      if (apiGroupMap.has(sourceGroup)) {
+        apiGroupMap.get(sourceGroup).dependencies.outgoing++;
+      }
+      if (apiGroupMap.has(targetGroup)) {
+        apiGroupMap.get(targetGroup).dependencies.incoming++;
+      }
+      if (sourceGroup === targetGroup && apiGroupMap.has(sourceGroup)) {
+        apiGroupMap.get(sourceGroup).dependencies.internal++;
+      }
+    }
+  });
+  
+  const apiGroups = Array.from(apiGroupMap.values()).map(group => ({
+    ...group,
+    versions: Array.from(group.versions)
+  }));
+  
+  // Generate CRD schema details if requested with enhanced OpenAPI schema information
+  let crdSchemas = [];
+  if (exportOptions.includeSchemaDetails) {
+    // Fetch full CRD definitions from Kubernetes API to get complete schema details
+    try {
+      const crdResponse = await apiExtensionsV1Api.listCustomResourceDefinition();
+      const fullCRDs = crdResponse.items || [];
+      
+      crdSchemas = crdNodes.map(node => {
+        // Find the corresponding full CRD definition
+        const fullCRD = fullCRDs.find(crd => crd.metadata.name === node.name);
+        
+        if (fullCRD && fullCRD.spec) {
+          const spec = fullCRD.spec;
+          return {
+            name: node.name,
+            kind: spec.names?.kind || node.kind || 'Unknown',
+            group: spec.group || node.labels['api-group'] || 'unknown',
+            versions: spec.versions?.map(version => ({
+              name: version.name,
+              served: version.served || false,
+              storage: version.storage || false,
+              deprecated: version.deprecated || false,
+              deprecationWarning: version.deprecationWarning,
+              schema: version.schema?.openAPIV3Schema || undefined,
+              additionalPrinterColumns: version.additionalPrinterColumns || [],
+              subresources: version.subresources || {}
+            })) || [{
+              name: node.labels['version'] || 'v1',
+              served: true,
+              storage: true,
+              schema: node.labels['schema'] ? JSON.parse(node.labels['schema']) : undefined
+            }],
+            scope: spec.scope || (node.labels['scope'] === 'Cluster' ? 'Cluster' : 'Namespaced'),
+            shortNames: spec.names?.shortNames || [],
+            categories: spec.names?.categories || [],
+            singular: spec.names?.singular,
+            plural: spec.names?.plural,
+            listKind: spec.names?.listKind,
+            description: fullCRD.metadata?.annotations?.['kubernetes.io/description'] || `Custom Resource Definition: ${spec.names?.kind || node.kind}`,
+            instanceCount: parseInt(node.labels['instance-count']) || 0,
+            conversion: spec.conversion,
+            preserveUnknownFields: spec.preserveUnknownFields
+          };
+        } else {
+          // Fallback to basic information if full CRD not found
+          return {
+            name: node.name,
+            kind: node.kind || 'Unknown',
+            group: node.labels['api-group'] || 'unknown',
+            versions: [{
+              name: node.labels['version'] || 'v1',
+              served: true,
+              storage: true,
+              schema: node.labels['schema'] ? JSON.parse(node.labels['schema']) : undefined
+            }],
+            scope: node.labels['scope'] === 'Cluster' ? 'Cluster' : 'Namespaced',
+            shortNames: node.labels['short-names'] ? node.labels['short-names'].split(',') : [],
+            categories: node.labels['categories'] ? node.labels['categories'].split(',') : [],
+            description: node.labels['description'] || `Custom Resource Definition: ${node.kind}`,
+            instanceCount: parseInt(node.labels['instance-count']) || 0
+          };
+        }
+      });
+    } catch (error) {
+      log('Warning: Could not fetch full CRD definitions for enhanced schema details:', error.message);
+      // Fallback to basic schema information
+      crdSchemas = crdNodes.map(node => ({
+        name: node.name,
+        kind: node.kind || 'Unknown',
+        group: node.labels['api-group'] || 'unknown',
+        versions: [{
+          name: node.labels['version'] || 'v1',
+          served: true,
+          storage: true,
+          schema: node.labels['schema'] ? JSON.parse(node.labels['schema']) : undefined
+        }],
+        scope: node.labels['scope'] === 'Cluster' ? 'Cluster' : 'Namespaced',
+        shortNames: node.labels['short-names'] ? node.labels['short-names'].split(',') : [],
+        categories: node.labels['categories'] ? node.labels['categories'].split(',') : [],
+        description: node.labels['description'] || `Custom Resource Definition: ${node.kind}`,
+        instanceCount: parseInt(node.labels['instance-count']) || 0
+      }));
+    }
+  }
+  
+  // Generate dependency details
+  const dependencies = edges.map(edge => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    return {
+      id: edge.id,
+      source: {
+        name: sourceNode?.name || 'Unknown',
+        kind: sourceNode?.kind || 'Unknown',
+        group: sourceNode?.labels['api-group'],
+        version: sourceNode?.labels['version']
+      },
+      target: {
+        name: targetNode?.name || 'Unknown',
+        kind: targetNode?.kind || 'Unknown',
+        group: targetNode?.labels['api-group'],
+        version: targetNode?.labels['version']
+      },
+      type: edge.type,
+      strength: edge.strength,
+      reason: edge.metadata?.reason || 'Schema dependency',
+      field: edge.metadata?.field,
+      metadata: exportOptions.includeDependencyMetadata ? edge.metadata : undefined
+    };
+  });
+  
+  return {
+    metadata: {
+      exportTimestamp: new Date().toISOString(),
+      exportFormat: exportOptions.format,
+      analysisTimestamp: metadata.timestamp,
+      clusterInfo: {
+        name: 'kubernetes-admin-ui-cluster',
+        version: process.env.KUBERNETES_VERSION || 'unknown'
+      }
+    },
+    analysisOptions: {
+      selectedAPIGroups: analysisOptions.apiGroups || [],
+      selectedCRDs: analysisOptions.crds || [],
+      maxCRDs: analysisOptions.maxCRDs,
+      includeNativeResources: analysisOptions.includeNativeResources,
+      analysisDepth: analysisOptions.analysisDepth
+    },
+    statistics: {
+      totalNodes: nodes.length,
+      totalEdges: edges.length,
+      crdNodes: crdNodes.length,
+      coreResourceNodes: coreResourceNodes.length,
+      strongDependencies: strongEdges.length,
+      weakDependencies: weakEdges.length,
+      apiGroupCount: apiGroups.length,
+      nodesByType,
+      edgesByType,
+      complexityMetrics: {
+        averageDependenciesPerCRD: Math.round(avgDependencies * 100) / 100,
+        maxDependenciesPerCRD: maxDependencies,
+        circularDependencies: 0, // TODO: Implement circular dependency detection
+        isolatedCRDs
+      }
+    },
+    apiGroups,
+    crdSchemas,
+    dependencies,
+    rawGraph: exportOptions.includeRawGraph ? { nodes, edges } : undefined
+  };
+};
+
+// Helper function to generate CSV export
+const generateCSVExport = async (exportData) => {
+  const csvLines = [];
+  
+  // CRD Summary CSV
+  csvLines.push('=== CRD SUMMARY ===');
+  csvLines.push('Name,Kind,Group,Versions,Scope,Instance Count,Incoming Dependencies,Outgoing Dependencies');
+  
+  exportData.crdSchemas.forEach(crd => {
+    const incoming = exportData.dependencies.filter(dep => dep.target.name === crd.name).length;
+    const outgoing = exportData.dependencies.filter(dep => dep.source.name === crd.name).length;
+    const versions = crd.versions.map(v => v.name).join(';');
+    
+    csvLines.push(`"${crd.name}","${crd.kind}","${crd.group}","${versions}","${crd.scope}",${crd.instanceCount || 0},${incoming},${outgoing}`);
+  });
+  
+  csvLines.push('');
+  csvLines.push('=== DEPENDENCIES ===');
+  csvLines.push('Source Kind,Source Name,Source Group,Target Kind,Target Name,Target Group,Dependency Type,Strength,Reason');
+  
+  exportData.dependencies.forEach(dep => {
+    csvLines.push(`"${dep.source.kind}","${dep.source.name}","${dep.source.group || ''}","${dep.target.kind}","${dep.target.name}","${dep.target.group || ''}","${dep.type}","${dep.strength}","${dep.reason}"`);
+  });
+  
+  csvLines.push('');
+  csvLines.push('=== API GROUP SUMMARY ===');
+  csvLines.push('API Group,CRD Count,Versions,Total Dependencies');
+  
+  exportData.apiGroups.forEach(group => {
+    const totalDeps = group.dependencies.incoming + group.dependencies.outgoing;
+    const versions = group.versions.join(';');
+    csvLines.push(`"${group.name}",${group.crdCount},"${versions}",${totalDeps}`);
+  });
+  
+  return csvLines.join('\n');
+};
+
+// Helper function to generate Mermaid graph from UI dependency graph data
+const generateMermaidGraphFromUI = (graphData, filters = {}) => {
+  const lines = [];
+  
+  if (!graphData || !graphData.nodes || !graphData.edges || graphData.nodes.length === 0) {
+    lines.push('```mermaid');
+    lines.push('graph TD');
+    lines.push('    NoData["No Resources Found"]');
+    lines.push('```');
+    return lines;
+  }
+  
+  lines.push('```mermaid');
+  lines.push('graph LR');
+  
+  // Apply the same filtering logic as the UI component
+  let filteredNodes = [...graphData.nodes];
+  let filteredEdges = [...graphData.edges];
+  
+  // Apply search filter if provided
+  if (filters.search) {
+    const searchLower = filters.search.toLowerCase();
+    filteredNodes = filteredNodes.filter(node => {
+      if (!node) return false;
+      return (
+        (node.name && node.name.toLowerCase().includes(searchLower)) ||
+        (node.kind && node.kind.toLowerCase().includes(searchLower)) ||
+        (node.namespace && node.namespace.toLowerCase().includes(searchLower))
+      );
+    });
+  }
+  
+  // Apply resource type filter if provided
+  if (filters.resourceTypes && filters.resourceTypes.length > 0) {
+    filteredNodes = filteredNodes.filter(node => 
+      node && node.kind && filters.resourceTypes.includes(node.kind)
+    );
+  }
+  
+  // Create node IDs set for edge filtering
+  const nodeIds = new Set(filteredNodes.map(node => node.id));
+  
+  // Filter edges to only include those connecting filtered nodes
+  filteredEdges = filteredEdges.filter(edge => 
+    edge && edge.source && edge.target &&
+    nodeIds.has(edge.source) && nodeIds.has(edge.target)
+  );
+  
+  // Apply dependency type filter if provided
+  if (filters.dependencyTypes && filters.dependencyTypes.length > 0) {
+    filteredEdges = filteredEdges.filter(edge => 
+      edge && edge.type && filters.dependencyTypes.includes(edge.type)
+    );
+  }
+  
+  // Apply weak dependency filter if specified
+  if (filters.showWeakDependencies === false) {
+    filteredEdges = filteredEdges.filter(edge => edge && edge.strength === 'strong');
+  }
+  
+  // If no edges remain after filtering, show message
+  if (filteredEdges.length === 0) {
+    if (filteredNodes.length > 0) {
+      lines.push('    NoEdges["No Dependencies Found with Current Filters"]');
+    } else {
+      lines.push('    NoNodes["No Resources Found with Current Filters"]');
+    }
+    lines.push('```');
+    return lines;
+  }
+  
+  // Apply reasonable limits for Mermaid readability 
+  const maxMermaidNodes = Math.min(filters.maxNodes || 25, 25); // Mermaid gets cluttered with too many nodes
+  const maxMermaidEdges = 50;
+  
+  // Priority: show nodes that have the most connections first
+  const nodeConnections = new Map();
+  filteredEdges.forEach(edge => {
+    nodeConnections.set(edge.source, (nodeConnections.get(edge.source) || 0) + 1);
+    nodeConnections.set(edge.target, (nodeConnections.get(edge.target) || 0) + 1);
+  });
+  
+  // Sort nodes by connection count (most connected first) for better visualization
+  const sortedNodes = [...filteredNodes].sort((a, b) => {
+    const aConnections = nodeConnections.get(a.id) || 0;
+    const bConnections = nodeConnections.get(b.id) || 0;
+    return bConnections - aConnections;
+  });
+  
+  filteredNodes = sortedNodes.slice(0, maxMermaidNodes);
+  
+  // Re-filter edges based on limited nodes
+  const limitedNodeIds = new Set(filteredNodes.map(node => node.id));
+  filteredEdges = filteredEdges.filter(edge => 
+    limitedNodeIds.has(edge.source) && limitedNodeIds.has(edge.target)
+  ).slice(0, maxMermaidEdges);
+  
+  const nodeMap = new Map();
+  let nodeCounter = 0;
+  
+  // Helper to get clean node ID and label (same logic as UI)
+  const getNodeInfo = (node) => {
+    if (!nodeMap.has(node.id)) {
+      const nodeId = `N${++nodeCounter}`;
+      
+      // Create clean labels (same as UI CustomResourceNode component)
+      let cleanName = node.name || 'Unknown';
+      let displayKind = node.kind || 'Unknown';
+      
+      // Shorten long names for better readability
+      if (cleanName.length > 15) {
+        cleanName = cleanName.substring(0, 12) + '...';
+      }
+      
+      // Add namespace info if present
+      let label = `${displayKind}\\n${cleanName}`;
+      if (node.namespace) {
+        label += `\\n(${node.namespace})`;
+      }
+      
+      nodeMap.set(node.id, { id: nodeId, label, originalKind: node.kind, node });
+    }
+    return nodeMap.get(node.id);
+  };
+  
+  // Process all nodes to create node mappings
+  filteredNodes.forEach(node => {
+    getNodeInfo(node);
+  });
+  
+  // Add edges with the same styling logic as the UI
+  const addedEdges = new Set();
+  
+  filteredEdges.forEach(edge => {
+    const sourceNode = filteredNodes.find(n => n.id === edge.source);
+    const targetNode = filteredNodes.find(n => n.id === edge.target);
+    
+    if (!sourceNode || !targetNode) return;
+    
+    const sourceInfo = getNodeInfo(sourceNode);
+    const targetInfo = getNodeInfo(targetNode);
+    
+    // Avoid duplicate edges
+    const edgeKey = `${sourceInfo.id}-${targetInfo.id}-${edge.type}`;
+    if (addedEdges.has(edgeKey)) return;
+    addedEdges.add(edgeKey);
+    
+    // Determine edge style based on dependency type and strength (same as UI)
+    let edgeStyle = '-->';
+    if (edge.strength === 'strong') {
+      edgeStyle = '==>';
+    }
+    
+    // Create edge with meaningful label (same mapping as UI theme)
+    const depTypeLabel = {
+      'owner': '👑',
+      'volume': '💾',
+      'service': '🌐',
+      'serviceAccount': '👤',
+      'selector': '🔍',
+      'network': '🌍',
+      'configMap': '⚙️',
+      'secret': '🔐',
+      'environment': '🌿',
+      'imagePullSecret': '🖼️',
+      'scheduling': '📅',
+      'custom': '🔗'
+    }[edge.type] || edge.type;
+    
+    lines.push(`    ${sourceInfo.id} ${edgeStyle}|${depTypeLabel}| ${targetInfo.id}`);
+    
+    // Add edge styling (same colors as UI theme)
+    const edgeColors = {
+      'owner': '#ff6b6b',
+      'volume': '#4ecdc4',
+      'service': '#ffa726',
+      'serviceAccount': '#42a5f5',
+      'selector': '#66bb6a',
+      'network': '#ab47bc',
+      'configMap': '#26c6da',
+      'secret': '#ef5350',
+      'environment': '#9ccc65',
+      'imagePullSecret': '#ffa726',
+      'scheduling': '#8d6e63',
+      'custom': '#78909c'
+    };
+    
+    const edgeColor = edgeColors[edge.type] || '#666666';
+    const strokeWidth = edge.strength === 'strong' ? '3px' : '1px';
+    const strokeDash = edge.strength === 'weak' ? ',stroke-dasharray: 5 5' : '';
+    
+    lines.push(`    linkStyle ${addedEdges.size - 1} stroke:${edgeColor},stroke-width:${strokeWidth}${strokeDash}`);
+  });
+  
+  // Add node definitions with styling (same as UI)
+  nodeMap.forEach(nodeInfo => {
+    lines.push(`    ${nodeInfo.id}["${nodeInfo.label}"]`);
+    
+    // Apply styling based on node type (same logic as UI)
+    const nodeKind = nodeInfo.originalKind;
+    let nodeClass = 'default';
+    
+    if (['Pod'].includes(nodeKind)) {
+      nodeClass = 'pod';
+    } else if (['Service', 'Ingress'].includes(nodeKind)) {
+      nodeClass = 'service';
+    } else if (['Deployment', 'ReplicaSet', 'DaemonSet', 'StatefulSet'].includes(nodeKind)) {
+      nodeClass = 'workload';
+    } else if (['ConfigMap', 'Secret'].includes(nodeKind)) {
+      nodeClass = 'config';
+    } else if (nodeKind.includes('Custom') || nodeKind === 'CustomResourceDefinition') {
+      nodeClass = 'crd';
+    }
+    
+    lines.push(`    class ${nodeInfo.id} ${nodeClass}`);
+  });
+  
+  // Add styles (same color scheme as UI theme)
+  lines.push('');
+  lines.push('    classDef default fill:#f9f9f9,stroke:#666666,stroke-width:1px,color:#000');
+  lines.push('    classDef pod fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#000');
+  lines.push('    classDef service fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#000');
+  lines.push('    classDef workload fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#000');
+  lines.push('    classDef config fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#000');
+  lines.push('    classDef crd fill:#e8f5e8,stroke:#1976d2,stroke-width:3px,color:#000,font-weight:bold');
+  
+  // Add note about filtering if we limited the results
+  if (filteredNodes.length < graphData.nodes.length || filteredEdges.length < graphData.edges.length) {
+    lines.push(`    %% Showing ${filteredNodes.length} resources and ${filteredEdges.length} dependencies`);
+    lines.push(`    %% Original: ${graphData.nodes.length} resources, ${graphData.edges.length} dependencies`);
+  }
+  
+  lines.push('```');
+  return lines;
+};
+
+// Keep the legacy function for backward compatibility with CRD exports
+const generateMermaidGraph = (exportData) => {
+  const lines = [];
+  
+  if (!exportData.dependencies || exportData.dependencies.length === 0) {
+    lines.push('```mermaid');
+    lines.push('graph TD');
+    lines.push('    NoData["No Dependencies Found"]');
+    lines.push('```');
+    return lines;
+  }
+  
+  lines.push('```mermaid');
+  lines.push('graph LR');
+  
+  // Group dependencies by source CRD for better visualization
+  const crdDependencies = new Map();
+  const nodeMap = new Map();
+  let nodeCounter = 0;
+  
+  // Helper to get clean node ID and label
+  const getNodeInfo = (name, kind) => {
+    const key = `${kind}/${name}`;
+    if (!nodeMap.has(key)) {
+      const nodeId = `N${++nodeCounter}`;
+      
+      // Create clean labels
+      let cleanName = name;
+      let displayKind = kind;
+      
+      // Handle CRD names - extract the actual kind from CRD schemas if available
+      if (kind === 'CustomResourceDefinition' && exportData.crdSchemas) {
+        const crdSchema = exportData.crdSchemas.find(crd => crd.name === name);
+        if (crdSchema) {
+          cleanName = crdSchema.kind;
+          displayKind = crdSchema.kind; // Use the actual CRD kind, not generic 'CRD'
+        }
+      }
+      
+      // For CRDs, don't truncate - show full kind name
+      if (kind !== 'CustomResourceDefinition' && cleanName.length > 15) {
+        cleanName = cleanName.substring(0, 12) + '...';
+      }
+      
+      const label = `${displayKind}\\n${cleanName}`;
+      nodeMap.set(key, { id: nodeId, label, originalKind: kind });
+    }
+    return nodeMap.get(key);
+  };
+  
+  // Process dependencies to find meaningful CRD relationships
+  const meaningfulDeps = exportData.dependencies.filter(dep => {
+    // Focus on strong dependencies and specific types that matter
+    return dep.strength === 'strong' || 
+           ['configMap', 'secret', 'serviceAccount', 'volume', 'selector'].includes(dep.type);
+  });
+  
+  // Limit to most important dependencies for clarity (25 max)
+  const topDeps = meaningfulDeps.slice(0, 25);
+  
+  if (topDeps.length === 0) {
+    lines.push('    NoDeps["No Strong Dependencies Found"]');
+    lines.push('```');
+    return lines;
+  }
+  
+  // Add nodes and edges
+  const addedEdges = new Set();
+  
+  topDeps.forEach(dep => {
+    const sourceInfo = getNodeInfo(dep.source.name, dep.source.kind);
+    const targetInfo = getNodeInfo(dep.target.name, dep.target.kind);
+    
+    // Avoid duplicate edges
+    const edgeKey = `${sourceInfo.id}-${targetInfo.id}-${dep.type}`;
+    if (addedEdges.has(edgeKey)) return;
+    addedEdges.add(edgeKey);
+    
+    // Determine edge style based on dependency type and strength
+    let edgeStyle = '-->';
+    let edgeClass = '';
+    
+    if (dep.strength === 'strong') {
+      edgeStyle = '==>';
+      edgeClass = ' strong';
+    }
+    
+    // Create edge with meaningful label
+    const depTypeLabel = {
+      'configMap': 'Config',
+      'secret': 'Secret',
+      'serviceAccount': 'SA',
+      'volume': 'Volume',
+      'selector': 'Select',
+      'custom': 'Uses',
+      'environment': 'Env',
+      'imagePullSecret': 'Image'
+    }[dep.type] || dep.type;
+    
+    lines.push(`    ${sourceInfo.id} ${edgeStyle}|${depTypeLabel}| ${targetInfo.id}`);
+    
+    // Add edge class for styling
+    if (edgeClass) {
+      lines.push(`    linkStyle ${addedEdges.size - 1} stroke:#ff6b6b,stroke-width:3px`);
+    }
+  });
+  
+  // Add node definitions with styling
+  nodeMap.forEach(nodeInfo => {
+    lines.push(`    ${nodeInfo.id}["${nodeInfo.label}"]`);
+    
+    // Apply styling based on node type
+    if (nodeInfo.originalKind === 'CustomResourceDefinition') {
+      lines.push(`    class ${nodeInfo.id} crd`);
+    } else {
+      lines.push(`    class ${nodeInfo.id} k8s`);
+    }
+  });
+  
+  // Add styles
+  lines.push('');
+  lines.push('    classDef crd fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000,font-weight:bold');
+  lines.push('    classDef k8s fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000');
+  
+  // Add note about filtering if we limited the dependencies
+  if (topDeps.length < exportData.dependencies.length) {
+    lines.push(`    %% Showing ${topDeps.length} key dependencies of ${exportData.dependencies.length} total`);
+  }
+  
+  lines.push('```');
+  return lines;
+};
+
+// Helper function to recursively render OpenAPI schema properties
+const renderSchemaProperties = (properties, required = [], prefix = '', maxDepth = 3, currentDepth = 0) => {
+  const lines = [];
+  
+  if (!properties || currentDepth >= maxDepth) {
+    return lines;
+  }
+  
+  Object.keys(properties).forEach(prop => {
+    const propSchema = properties[prop];
+    const fullPropName = prefix ? `${prefix}.${prop}` : prop;
+    const isRequired = required.includes(prop) ? '✅' : '❌';
+    const type = propSchema.type || 'object';
+    
+    // Format constraints and validation info
+    const constraints = [];
+    if (propSchema.minimum !== undefined) constraints.push(`min: ${propSchema.minimum}`);
+    if (propSchema.maximum !== undefined) constraints.push(`max: ${propSchema.maximum}`);
+    if (propSchema.minLength !== undefined) constraints.push(`minLen: ${propSchema.minLength}`);
+    if (propSchema.maxLength !== undefined) constraints.push(`maxLen: ${propSchema.maxLength}`);
+    if (propSchema.pattern) constraints.push(`pattern: ${propSchema.pattern}`);
+    if (propSchema.enum) constraints.push(`enum: [${propSchema.enum.join(', ')}]`);
+    if (propSchema.format) constraints.push(`format: ${propSchema.format}`);
+    
+    const constraintText = constraints.length > 0 ? ` (${constraints.join(', ')})` : '';
+    const typeText = `${type}${constraintText}`;
+    
+    // Handle array types
+    let arrayInfo = '';
+    if (type === 'array' && propSchema.items) {
+      const itemType = propSchema.items.type || 'object';
+      arrayInfo = ` of ${itemType}`;
+      if (propSchema.items.properties) {
+        arrayInfo += ' objects';
+      }
+    }
+    
+    // Description with proper escaping
+    let description = propSchema.description || '';
+    if (description.length > 200) {
+      description = description.substring(0, 200) + '...';
+    }
+    description = description.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    
+    // Add default value if present
+    if (propSchema.default !== undefined) {
+      const defaultVal = typeof propSchema.default === 'object' ? JSON.stringify(propSchema.default) : propSchema.default;
+      description = `${description}${description ? ' ' : ''}Default: \`${defaultVal}\``;
+    }
+    
+    lines.push(`| ${fullPropName} | ${typeText}${arrayInfo} | ${isRequired} | ${description} |`);
+    
+    // Recursively process nested object properties
+    if (propSchema.type === 'object' && propSchema.properties && currentDepth < maxDepth - 1) {
+      const nestedRequired = propSchema.required || [];
+      const nestedLines = renderSchemaProperties(
+        propSchema.properties,
+        nestedRequired,
+        fullPropName,
+        maxDepth,
+        currentDepth + 1
+      );
+      lines.push(...nestedLines);
+    }
+    
+    // Handle array items with properties
+    if (propSchema.type === 'array' && propSchema.items && propSchema.items.properties && currentDepth < maxDepth - 1) {
+      const itemRequired = propSchema.items.required || [];
+      const arrayItemLines = renderSchemaProperties(
+        propSchema.items.properties,
+        itemRequired,
+        `${fullPropName}[]`,
+        maxDepth,
+        currentDepth + 1
+      );
+      lines.push(...arrayItemLines);
+    }
+  });
+  
+  return lines;
+};
+
+// Helper function to generate detailed CRD table with comprehensive OpenAPI schema
+const generateDetailedCRDTable = (crdSchemas) => {
+  if (!crdSchemas || crdSchemas.length === 0) {
+    return ['*No CRD schema details available (enable "Include Schema Details" in export options)*', ''];
+  }
+  
+  const lines = [];
+  
+  crdSchemas.forEach((crd, index) => {
+    if (index > 0) lines.push('---', ''); // Separator between CRDs
+    
+    lines.push(`### ${crd.kind} (${crd.name})`);
+    lines.push('');
+    
+    // Basic information table
+    lines.push('| Property | Value |');
+    lines.push('|----------|-------|');
+    lines.push(`| **Name** | ${crd.name} |`);
+    lines.push(`| **Kind** | ${crd.kind} |`);
+    lines.push(`| **API Group** | ${crd.group} |`);
+    lines.push(`| **Scope** | ${crd.scope} |`);
+    lines.push(`| **Versions** | ${crd.versions.map(v => v.name).join(', ')} |`);
+    lines.push(`| **Instance Count** | ${crd.instanceCount || 0} |`);
+    
+    if (crd.singular) lines.push(`| **Singular** | ${crd.singular} |`);
+    if (crd.plural) lines.push(`| **Plural** | ${crd.plural} |`);
+    if (crd.listKind) lines.push(`| **List Kind** | ${crd.listKind} |`);
+    
+    if (crd.shortNames && crd.shortNames.length > 0) {
+      lines.push(`| **Short Names** | ${crd.shortNames.join(', ')} |`);
+    }
+    
+    if (crd.categories && crd.categories.length > 0) {
+      lines.push(`| **Categories** | ${crd.categories.join(', ')} |`);
+    }
+    
+    if (crd.preserveUnknownFields !== undefined) {
+      lines.push(`| **Preserve Unknown Fields** | ${crd.preserveUnknownFields ? '✅' : '❌'} |`);
+    }
+    
+    lines.push('');
+    
+    // Version details with enhanced information
+    if (crd.versions && crd.versions.length > 0) {
+      lines.push('#### Version Information');
+      lines.push('');
+      lines.push('| Version | Served | Storage | Deprecated | Schema | Subresources | Printer Columns |');
+      lines.push('|---------|--------|---------|------------|--------|--------------|-----------------|');
+      
+      crd.versions.forEach(version => {
+        const served = version.served ? '✅' : '❌';
+        const storage = version.storage ? '✅' : '❌';
+        const deprecated = version.deprecated ? '⚠️' : '✅';
+        const hasSchema = version.schema ? '✅' : '❌';
+        const hasSubresources = version.subresources && Object.keys(version.subresources).length > 0 ? '✅' : '❌';
+        const printerCols = version.additionalPrinterColumns ? version.additionalPrinterColumns.length : 0;
+        
+        lines.push(`| ${version.name} | ${served} | ${storage} | ${deprecated} | ${hasSchema} | ${hasSubresources} | ${printerCols} |`);
+        
+        if (version.deprecationWarning) {
+          lines.push(`| | | | *${version.deprecationWarning}* | | | |`);
+        }
+      });
+      
+      lines.push('');
+    }
+    
+    // Conversion information
+    if (crd.conversion && crd.conversion.strategy && crd.conversion.strategy !== 'None') {
+      lines.push('#### Version Conversion');
+      lines.push('');
+      lines.push('| Property | Value |');
+      lines.push('|----------|-------|');
+      lines.push(`| **Strategy** | ${crd.conversion.strategy} |`);
+      if (crd.conversion.webhook) {
+        lines.push(`| **Webhook Service** | ${crd.conversion.webhook.service?.name || 'N/A'} |`);
+        lines.push(`| **Webhook Namespace** | ${crd.conversion.webhook.service?.namespace || 'N/A'} |`);
+      }
+      lines.push('');
+    }
+    
+    // Comprehensive schema properties for each version
+    crd.versions.forEach(version => {
+      if (version.schema && version.schema.properties) {
+        lines.push(`#### Schema Properties - Version ${version.name}`);
+        lines.push('');
+        
+        // Top-level schema info
+        if (version.schema.type) {
+          lines.push(`**Root Type:** ${version.schema.type}`);
+          lines.push('');
+        }
+        
+        lines.push('| Property Path | Type & Constraints | Required | Description |');
+        lines.push('|---------------|-------------------|----------|-------------|');
+        
+        const required = version.schema.required || [];
+        const propertyLines = renderSchemaProperties(version.schema.properties, required, '', 4, 0);
+        
+        if (propertyLines.length > 0) {
+          lines.push(...propertyLines);
+        } else {
+          lines.push('| *No properties defined* | | | |');
+        }
+        
+        lines.push('');
+        
+        // Additional printer columns
+        if (version.additionalPrinterColumns && version.additionalPrinterColumns.length > 0) {
+          lines.push(`##### Additional Printer Columns - Version ${version.name}`);
+          lines.push('');
+          lines.push('| Name | Type | JSONPath | Description | Priority |');
+          lines.push('|------|------|----------|-------------|----------|');
+          
+          version.additionalPrinterColumns.forEach(col => {
+            const description = (col.description || '').replace(/\|/g, '\\|');
+            const priority = col.priority || 0;
+            lines.push(`| ${col.name} | ${col.type} | ${col.jsonPath} | ${description} | ${priority} |`);
+          });
+          
+          lines.push('');
+        }
+        
+        // Subresources
+        if (version.subresources && Object.keys(version.subresources).length > 0) {
+          lines.push(`##### Subresources - Version ${version.name}`);
+          lines.push('');
+          lines.push('| Subresource | Available |');
+          lines.push('|-------------|-----------|');
+          
+          Object.keys(version.subresources).forEach(sub => {
+            lines.push(`| ${sub} | ✅ |`);
+          });
+          
+          lines.push('');
+        }
+      }
+    });
+    
+    // Description
+    if (crd.description) {
+      lines.push('#### Description');
+      lines.push('');
+      lines.push(crd.description);
+      lines.push('');
+    }
+  });
+  
+  return lines;
+};
+
+// Helper function to generate Markdown export
+const generateMarkdownExport = async (exportData) => {
+  const lines = [];
+  
+  lines.push('# CRD Dependency Analysis Report');
+  lines.push('');
+  lines.push(`**Generated:** ${exportData.metadata.exportTimestamp}`);
+  lines.push(`**Analysis Timestamp:** ${exportData.metadata.analysisTimestamp}`);
+  lines.push(`**Cluster:** ${exportData.metadata.clusterInfo?.name || 'Unknown'}`);
+  lines.push('');
+  
+  // Table of Contents
+  lines.push('## Table of Contents');
+  lines.push('');
+  lines.push('- [Summary](#summary)');
+  lines.push('- [Analysis Configuration](#analysis-configuration)');
+  lines.push('- [Dependency Graph](#dependency-graph)');
+  lines.push('- [API Groups](#api-groups)');
+  lines.push('- [Dependencies Summary](#dependencies-summary)');
+  if (exportData.crdSchemas && exportData.crdSchemas.length > 0) {
+    lines.push('- [CRD Details](#crd-details)');
+    lines.push('- [Detailed CRD Specifications](#detailed-crd-specifications)');
+  }
+  lines.push('- [Top Dependencies](#top-dependencies)');
+  lines.push('');
+  
+  // Summary
+  lines.push('## Summary');
+  lines.push('');
+  lines.push(`- **Total Nodes:** ${exportData.statistics.totalNodes}`);
+  lines.push(`- **Total Dependencies:** ${exportData.statistics.totalEdges}`);
+  lines.push(`- **CRD Definitions:** ${exportData.statistics.crdNodes}`);
+  lines.push(`- **Core Resources:** ${exportData.statistics.coreResourceNodes}`);
+  lines.push(`- **API Groups:** ${exportData.statistics.apiGroupCount}`);
+  lines.push(`- **Strong Dependencies:** ${exportData.statistics.strongDependencies}`);
+  lines.push(`- **Weak Dependencies:** ${exportData.statistics.weakDependencies}`);
+  lines.push('');
+  
+  // Analysis Options
+  lines.push('## Analysis Configuration');
+  lines.push('');
+  lines.push(`- **Selected API Groups:** ${exportData.analysisOptions.selectedAPIGroups.length > 0 ? exportData.analysisOptions.selectedAPIGroups.join(', ') : 'All'}`);
+  lines.push(`- **Selected CRDs:** ${exportData.analysisOptions.selectedCRDs.length > 0 ? exportData.analysisOptions.selectedCRDs.join(', ') : 'All in selected groups'}`);
+  lines.push(`- **Max CRDs:** ${exportData.analysisOptions.maxCRDs === 9999 ? 'Unlimited' : exportData.analysisOptions.maxCRDs}`);
+  lines.push(`- **Include Native Resources:** ${exportData.analysisOptions.includeNativeResources}`);
+  lines.push(`- **Analysis Depth:** ${exportData.analysisOptions.analysisDepth}`);
+  lines.push('');
+  
+  // Dependency Graph (Mermaid)
+  lines.push('## Dependency Graph');
+  lines.push('');
+  lines.push('This diagram shows the key dependencies between Custom Resources and core Kubernetes resources.');
+  lines.push('Only strong dependencies and important resource types are shown for clarity:');
+  lines.push('');
+        const mermaidLines = generateMermaidGraph(exportData);
+        lines.push(...mermaidLines);
+  lines.push('');
+  
+  // API Groups
+  lines.push('## API Groups');
+  lines.push('');
+  lines.push('| API Group | CRD Count | Versions | Incoming Deps | Outgoing Deps | Internal Deps |');
+  lines.push('|-----------|-----------|----------|---------------|---------------|---------------|');
+  
+  exportData.apiGroups.forEach(group => {
+    lines.push(`| ${group.name} | ${group.crdCount} | ${group.versions.join(', ')} | ${group.dependencies.incoming} | ${group.dependencies.outgoing} | ${group.dependencies.internal} |`);
+  });
+  
+  lines.push('');
+  
+  // CRD Details
+  if (exportData.crdSchemas && exportData.crdSchemas.length > 0) {
+    lines.push('## CRD Details');
+    lines.push('');
+    lines.push('| Name | Kind | Group | Scope | Versions | Instances |');
+    lines.push('|------|------|-------|-------|----------|-----------|');
+    
+    exportData.crdSchemas.forEach(crd => {
+      const versions = crd.versions.map(v => v.name).join(', ');
+      lines.push(`| ${crd.name} | ${crd.kind} | ${crd.group} | ${crd.scope} | ${versions} | ${crd.instanceCount || 0} |`);
+    });
+    
+    lines.push('');
+  }
+  
+  // Dependencies Summary
+  lines.push('## Dependencies Summary');
+  lines.push('');
+  lines.push('### By Type');
+  lines.push('');
+  Object.entries(exportData.statistics.edgesByType).forEach(([type, count]) => {
+    lines.push(`- **${type}:** ${count}`);
+  });
+  lines.push('');
+  
+  lines.push('### Complexity Metrics');
+  lines.push('');
+  lines.push(`- **Average Dependencies per CRD:** ${exportData.statistics.complexityMetrics.averageDependenciesPerCRD}`);
+  lines.push(`- **Max Dependencies per CRD:** ${exportData.statistics.complexityMetrics.maxDependenciesPerCRD}`);
+  lines.push(`- **Isolated CRDs:** ${exportData.statistics.complexityMetrics.isolatedCRDs}`);
+  lines.push('');
+  
+  // Detailed CRD Specifications
+  if (exportData.crdSchemas && exportData.crdSchemas.length > 0) {
+    lines.push('## Detailed CRD Specifications');
+    lines.push('');
+    lines.push('This section provides comprehensive details for each Custom Resource Definition, including schema properties, versions, and configuration details.');
+    lines.push('');
+    const detailedCRDLines = generateDetailedCRDTable(exportData.crdSchemas);
+    lines.push(...detailedCRDLines);
+  }
+  
+  // Top Dependencies (show more in exports)
+  if (exportData.dependencies.length > 0) {
+    lines.push('## Top Dependencies');
+    lines.push('');
+    lines.push('| Source | Target | Type | Strength | Reason |');
+    lines.push('|--------|--------|------|----------|--------|');
+    
+    const dependenciesToShow = Math.min(exportData.dependencies.length, 100); // Show up to 100 in exports
+    exportData.dependencies.slice(0, dependenciesToShow).forEach(dep => {
+      const reason = dep.reason.replace(/\|/g, '\\|'); // Escape pipe characters in markdown
+      lines.push(`| ${dep.source.kind}/${dep.source.name} | ${dep.target.kind}/${dep.target.name} | ${dep.type} | ${dep.strength} | ${reason} |`);
+    });
+    
+    if (exportData.dependencies.length > dependenciesToShow) {
+      lines.push('');
+      lines.push(`*Showing first ${dependenciesToShow} of ${exportData.dependencies.length} total dependencies*`);
+    }
+  }
+  
+  return lines.join('\n');
+};
+
 // Configuration validation
 const validateConfiguration = () => {
   const errors = [];
+  const warnings = [];
   
+  // Validate port
   if (port < 1000 || port > 65535) {
     errors.push(`Invalid port: ${port}. Must be between 1000-65535`);
   }
   
+  // Validate timeout
   if (apiTimeout < 1000) {
     errors.push(`Invalid timeout: ${apiTimeout}. Must be at least 1000ms`);
+  }
+  
+  // Note: CLUSTER_CONTEXT is optional - if not set, current kubectl context is used
+  // This is validated during kubeconfig loading
+  
+  // Validate performance limits
+  if (MAX_RESOURCES_PER_TYPE < 1 || MAX_RESOURCES_PER_TYPE > 1000) {
+    warnings.push(`MAX_RESOURCES_PER_TYPE (${MAX_RESOURCES_PER_TYPE}) should be between 1-1000`);
+  }
+  
+  if (MAX_NAMESPACES_TO_SCAN < 1 || MAX_NAMESPACES_TO_SCAN > 100) {
+    warnings.push(`MAX_NAMESPACES_TO_SCAN (${MAX_NAMESPACES_TO_SCAN}) should be between 1-100`);
+  }
+  
+  if (MAX_NODES_TO_INCLUDE < 1 || MAX_NODES_TO_INCLUDE > 500) {
+    warnings.push(`MAX_NODES_TO_INCLUDE (${MAX_NODES_TO_INCLUDE}) should be between 1-500`);
+  }
+  
+  // Report results
+  if (warnings.length > 0) {
+    console.warn('⚠️ Configuration warnings:');
+    warnings.forEach(warning => console.warn(`  - ${warning}`));
   }
   
   if (errors.length > 0) {
     console.error('❌ Configuration validation failed:');
     errors.forEach(error => console.error(`  - ${error}`));
+    console.error('\nPlease fix the configuration errors above before starting the server.');
+    console.error('Refer to .env.example for configuration guidance.');
     process.exit(1);
   }
   
-  console.log('✅ Configuration validation passed');
+  console.log('✅ Backend configuration validation passed');
+  
+  // Log current configuration in verbose mode
+  if (enableVerboseLogging) {
+    console.log('\n📋 Backend Configuration Summary:');
+    console.log(`  • Port: ${port}`);
+    console.log(`  • Timeout: ${apiTimeout}ms`);
+    console.log(`  • Cluster Context: ${clusterContext || 'current kubectl context'}`);
+    console.log(`  • Context Source: ${process.env.CLUSTER_CONTEXT ? 'environment variable' : 'kubectl current-context'}`);
+    console.log(`  • Max Resources per Type: ${MAX_RESOURCES_PER_TYPE}`);
+    console.log(`  • Max Namespaces to Scan: ${MAX_NAMESPACES_TO_SCAN}`);
+    console.log(`  • Max Nodes to Include: ${MAX_NODES_TO_INCLUDE}`);
+    console.log(`  • Max CRD Instances per NS: ${MAX_CRD_INSTANCES_PER_NS}`);
+    console.log(`  • Max CRD Sample Instances: ${MAX_CRD_SAMPLE_INSTANCES}`);
+    console.log(`  • Core Resources Config: ${coreResourcesConfig.length} resources loaded\n`);
+  }
 };
 
 // Start server
@@ -1443,6 +4196,15 @@ const startServer = async () => {
     log('    GET    /api/rbac/clusterrolebindings');
     log('    POST   /api/rbac/clusterrolebindings');
     log('    DELETE /api/rbac/clusterrolebindings/:name');
+    log('  Resource Dependencies endpoints:');
+    log('    GET    /api/dependencies/:kind/:name');
+    log('    GET    /api/dependencies/graph');
+    log('    GET    /api/dependencies/graph/export (JSON/CSV/Markdown - UI Graph Export)');
+    log('  CRD Analysis endpoints:');
+    log('    GET    /api/dependencies/dictionary (Legacy CRD Schema Analysis)');
+    log('    GET    /api/dependencies/crd/apigroups');
+    log('    GET    /api/dependencies/crd/enhanced');
+    log('    GET    /api/dependencies/crd/export (JSON/CSV/Markdown - CRD Schema Export)');
     log('');
     log('CORS Policy: Accepting requests from any localhost port (development mode)');
     log('Frontend can run on any port: http://localhost:5173, 5174, 5175, etc.');

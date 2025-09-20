@@ -1,12 +1,26 @@
-# Kubernetes Admin UI
+# yakui - Kubernetes Admin UI
 
-A comprehensive web-based administration interface for Kubernetes clusters, providing enterprise-grade resource management capabilities.
+A comprehensive web-based administration interface for Kubernetes clusters, providing enterprise-grade resource management capabilities with modern dark mode support.
 
-## Latest Release: v2.0.0
+![yakui Logo](images/yakui-overview.png)
+
+## Latest Release: v2.1.0
+
+### 🎨 UI/UX Enhancements
+
+The latest release introduces comprehensive UI improvements and branding updates:
+
+#### ✨ New Features
+
+- **🌙 Dark Mode Support**: Full dark/light theme toggle with system preference detection
+- **🎨 yakui Branding**: Updated logo and visual identity throughout the application
+- **📱 Responsive Design**: Optimized layout for mobile and desktop experiences
+- **🔄 Theme Persistence**: User theme preferences saved to localStorage
+- **⚡ Performance**: Improved Mermaid graph generation for CRD dependency exports
 
 ### 📁 Project Structure Reorganization
 
-The latest release introduces a major project structure reorganization to improve maintainability and development experience:
+The release also includes a major project structure reorganization to improve maintainability and development experience:
 
 #### ✨ New Structure
 
@@ -42,8 +56,8 @@ The latest release introduces a major project structure reorganization to improv
 
 ```bash
 # Clone the repository
-git clone https://github.com/user/kubernetes-admin-ui.git
-cd kubernetes-admin-ui
+git clone https://github.com/brunseba/yakui.git
+cd yakui
 
 # Install dependencies
 npm install
@@ -130,6 +144,8 @@ Documentation is organized into the following categories:
 - [RBAC Manager](./development/RBAC_MANAGER.md) - RBAC management functionality
 - [RBAC Detail View](./development/RBAC_DETAIL_VIEW_README.md) - Detailed RBAC resource views
 - [Kubernetes Resource Manager](./development/KUBERNETES_RESOURCE_MANAGER_SUMMARY.md) - Resource management features
+- [Resource Dependency Analysis](./development/RESOURCE_DEPENDENCY_ANALYSIS.md) - Dependency visualization analysis
+- [Dependency Feature Remediation](./development/DEPENDENCY_FEATURE_REMEDIATION_PLAN.md) - Dependency feature improvements
 
 #### 🔒 Security
 - [Security Assessment](./security/SECURITY_ASSESSMENT.md) - Security analysis and vulnerabilities
@@ -139,17 +155,22 @@ Documentation is organized into the following categories:
 #### 🚀 Deployment
 - [Production Deployment](./deployment/PRODUCTION_DEPLOYMENT.md) - Production deployment guide
 - [Docker Dependencies](./deployment/DOCKER_DEPENDENCIES.md) - Container setup and dependencies
+- [Production Checklist](./deployment/PRODUCTION_CHECKLIST.md) - Pre-deployment validation checklist
 
 #### 📚 Guides
 - [Git Workflow](./guides/GIT_WORKFLOW.md) - Development workflow and git conventions
 - [Taskfile Guide](./guides/TASKFILE_GUIDE.md) - Task automation with Taskfile
 - [Phase 1 Week 1 Quickstart](./guides/PHASE1_WEEK1_QUICKSTART.md) - Getting started guide
+- [Dependency Browser Guide](./guides/DEPENDENCY_BROWSER_GUIDE.md) - Resource dependency visualization guide
 
 #### 🐛 Fixes & Improvements
 - [API Base URL Fix](./fixes/API_BASE_URL_FIX_SUMMARY.md) - API URL configuration fixes
 - [CRD Details Fix](./fixes/CRD_DETAILS_FIX_SUMMARY.md) - Custom Resource Definition fixes
 - [CRD Detail Component](./fixes/CRD_DETAIL_COMPONENT_SUMMARY.md) - CRD detail view implementation
 - [Icon Fix](./fixes/ICON_FIX_SUMMARY.md) - UI icon fixes and improvements
+- [Cluster Context Changes](./CLUSTER_CONTEXT_CHANGES.md) - Kubernetes cluster context improvements
+- [Enhanced CRD Dependencies](./ENHANCED_CRD_DEPENDENCIES_SUMMARY.md) - Advanced CRD dependency analysis
+- [Substring Fixes](./SUBSTRING_FIXES.md) - String handling and search improvements
 
 #### 📋 Project Files
 - [Changelog](./CHANGELOG.md) - Release notes and version history
@@ -167,6 +188,7 @@ This project is licensed under the MIT License.
 
 ---
 
-**Current Version**: v2.0.0  
+**Current Version**: v2.1.0  
 **Last Updated**: 2025-09-20  
-**Kubernetes Compatibility**: v1.24+
+**Kubernetes Compatibility**: v1.24+  
+**Features**: Dark Mode, yakui Branding, CRD Export, Dependency Analysis
