@@ -14,7 +14,8 @@ COPY ../../package.json ../../package-lock.json ./
 # Install dependencies with exact versions from lock file (with BuildKit cache)
 RUN --mount=type=cache,target=/root/.npm \
     npm ci && \
-    npm cache clean --force
+    npm cache clean --force && \
+    chown -R frontend:nodejs /app/node_modules
 
 # Switch to non-root user early
 USER frontend
