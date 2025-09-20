@@ -1,19 +1,21 @@
-site_name: Kubernetes Admin UI
-site_description: A comprehensive web-based administration interface for Kubernetes clusters
-site_author: Kubernetes Admin UI Team
-site_url: https://username.github.io/kubernetes-admin-ui/
+site_name: yakui - Kubernetes Admin UI
+site_description: A comprehensive web-based administration interface for Kubernetes clusters with dark mode support
+site_author: yakui Team
+site_url: https://brunseba.github.io/yakui/
 
 # Repository
-repo_name: kubernetes-admin-ui
-repo_url: https://github.com/username/kubernetes-admin-ui
+repo_name: yakui
+repo_url: https://github.com/brunseba/yakui
 edit_uri: edit/main/docs/
 
 # Copyright
-copyright: Copyright &copy; 2025 Kubernetes Admin UI Team
+copyright: Copyright &copy; 2025 yakui Team
 
 # Configuration
 theme:
   name: material
+  logo: images/yakui-overview.png
+  favicon: images/yakui-overview.png
   palette:
     # Palette toggle for automatic mode
     - media: "(prefers-color-scheme)"
@@ -87,8 +89,8 @@ markdown_extensions:
   - pymdownx.keys
   - pymdownx.magiclink:
       repo_url_shorthand: true
-      user: username
-      repo: kubernetes-admin-ui
+      user: brunseba
+      repo: yakui
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.superfences:
@@ -109,14 +111,18 @@ nav:
     - Quick Start: guides/PHASE1_WEEK1_QUICKSTART.md
     - Task File Guide: guides/TASKFILE_GUIDE.md
     - Git Workflow: guides/GIT_WORKFLOW.md
+    - Dependency Browser Guide: guides/DEPENDENCY_BROWSER_GUIDE.md
   - Development:
     - Kubernetes Resource Manager: development/KUBERNETES_RESOURCE_MANAGER_SUMMARY.md
     - RBAC Manager: development/RBAC_MANAGER.md
     - RBAC Detail View: development/RBAC_DETAIL_VIEW_README.md
     - RBAC Development Complete: development/RBAC_DEVELOPMENT_COMPLETE.md
+    - Resource Dependency Analysis: development/RESOURCE_DEPENDENCY_ANALYSIS.md
+    - Dependency Feature Remediation: development/DEPENDENCY_FEATURE_REMEDIATION_PLAN.md
   - Deployment:
     - Docker Dependencies: deployment/DOCKER_DEPENDENCIES.md
     - Production Deployment: deployment/PRODUCTION_DEPLOYMENT.md
+    - Production Checklist: deployment/PRODUCTION_CHECKLIST.md
   - Security:
     - Security Assessment: security/SECURITY_ASSESSMENT.md
     - Hardening & Mitigation Guide: security/HARDENING_MITIGATION_GUIDE.md
@@ -126,6 +132,9 @@ nav:
     - CRD Details Fix: fixes/CRD_DETAILS_FIX_SUMMARY.md
     - CRD Detail Component: fixes/CRD_DETAIL_COMPONENT_SUMMARY.md
     - Icon Fix: fixes/ICON_FIX_SUMMARY.md
+    - Cluster Context Changes: CLUSTER_CONTEXT_CHANGES.md
+    - Enhanced CRD Dependencies: ENHANCED_CRD_DEPENDENCIES_SUMMARY.md
+    - Substring Fixes: SUBSTRING_FIXES.md
   - Project Info:
     - Implementation Roadmap: IMPLEMENTATION_ROADMAP.md
     - Project Completion: PROJECT_COMPLETION.md
@@ -138,9 +147,9 @@ extra:
     provider: mike
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/username/kubernetes-admin-ui
+      link: https://github.com/brunseba/yakui
     - icon: fontawesome/brands/docker
-      link: https://hub.docker.com/r/username/kubernetes-admin-ui
+      link: https://hub.docker.com/r/brunseba/yakui
 
 # PDF export configuration
 extra_css:
