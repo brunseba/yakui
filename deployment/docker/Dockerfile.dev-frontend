@@ -3,30 +3,26 @@ FROM node:22-alpine AS development
 # Set working directory
 WORKDIR /app
 
-# Install curl for healthchecks
-RUN apk add --no-cache curl
-
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
+# Install curl and create user early
+RUN apk add --no-cache curl && \
+    addgroup -g 1001 -S nodejs && \
     adduser -S frontend -u 1001 -G nodejs
 
 # Copy package files for dependency installation
 COPY ../../package.json ../../package-lock.json ./
 
-# Install dependencies with exact versions from lock file
-RUN npm ci && \
+# Install dependencies with exact versions from lock file (with BuildKit cache)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci && \
     npm cache clean --force
 
-# Copy source code
-COPY ../../app ./app
-COPY ../../config ./config
-COPY ../../tools ./tools
-
-# Change ownership to non-root user
-RUN chown -R frontend:nodejs /app
-
-# Switch to non-root user
+# Switch to non-root user early
 USER frontend
+
+# Copy source code with correct ownership (this will be rebuilt when code changes)
+COPY --chown=frontend:nodejs ../../app ./app
+COPY --chown=frontend:nodejs ../../config ./config
+COPY --chown=frontend:nodejs ../../tools ./tools
 
 # Expose port
 EXPOSE 5173

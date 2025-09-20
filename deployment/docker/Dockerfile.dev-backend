@@ -3,28 +3,26 @@ FROM node:22-alpine
 # Set working directory
 WORKDIR /app
 
-# Install curl for healthchecks
-RUN apk add --no-cache curl
+# Install curl for healthchecks and create directories early
+RUN apk add --no-cache curl && \
+    mkdir -p /home/node/.kube && \
+    chown -R node:node /home/node/.kube
 
 # Copy package files for dependency installation
 COPY ../../package.json ../../package-lock.json ./
 
-# Install dependencies with exact versions from lock file
-RUN npm ci && \
+# Install dependencies with exact versions from lock file (with BuildKit cache)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci && \
     npm cache clean --force
 
-# Copy source code
-COPY ../../app ./app
-COPY ../../config ./config
-COPY ../../tools ./tools
-
-# Create .kube directory for the node user
-RUN mkdir -p /home/node/.kube && \
-    chown -R node:node /home/node/.kube && \
-    chown -R node:node /app
-
-# Switch to node user (created by node base image)
+# Switch to node user early to avoid ownership issues
 USER node
+
+# Copy source code (this will be rebuilt when code changes)
+COPY --chown=node:node ../../app ./app
+COPY --chown=node:node ../../config ./config
+COPY --chown=node:node ../../tools ./tools
 
 # Expose port
 EXPOSE 3001

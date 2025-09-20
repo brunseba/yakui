@@ -1,0 +1,79 @@
+services:
+  # Frontend Development Server (Vite) - Optimized for speed
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dev-frontend
+      target: development
+      cache_from:
+        - docker-frontend:latest
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: docker-frontend:latest
+    container_name: yakui-frontend-fast
+    ports:
+      - "5173:5173"
+    volumes:
+      # Bind mount source code for hot reload (fastest)
+      - ../../app/src:/app/app/src:cached
+      - ../../config:/app/config:cached
+      # Use named volumes for dependencies (faster)
+      - frontend-node-modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:3001/api
+      - VITE_CLUSTER_CONTEXT=kind-krateo-quickstart
+      - VITE_ENABLE_STUB_FEATURES=true
+      - VITE_ENABLE_SERVER_MASKING=false
+      - VITE_ENABLE_VERBOSE_LOGGING=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Backend for full Docker development (faster build)
+  backend:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dev-backend
+      cache_from:
+        - docker-backend:latest
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: docker-backend:latest
+    container_name: yakui-backend-fast
+    ports:
+      - "3001:3001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Bind mount source code for hot reload
+      - ../../tools:/app/tools:cached
+      - ../../config:/app/config:cached
+      - ~/.kube:/home/node/.kube:ro
+      # Use named volume for dependencies
+      - backend-node-modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - API_PORT=3001
+      - API_TIMEOUT=30000
+      - CLUSTER_CONTEXT=kind-krateo-quickstart
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    user: "node"
+    profiles:
+      - backend  # Only start when explicitly requested
+
+volumes:
+  frontend-node-modules:
+    name: yakui-frontend-node-modules
+  backend-node-modules:
+    name: yakui-backend-node-modules
