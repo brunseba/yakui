@@ -67,7 +67,10 @@ import {
 // Custom node types
 const CustomResourceNode: React.FC<{ data: any }> = ({ data }) => {
   const { kind, name, namespace, labels, status } = data;
-  const icon = dependencyAnalyzer.getResourceKindIcon(kind);
+  
+  // Ensure kind is not undefined
+  const resourceKind = kind || 'Unknown';
+  const icon = dependencyAnalyzer.getResourceKindIcon(resourceKind);
   
   const getStatusColor = (status: any) => {
     if (!status) return '#gray';
@@ -97,7 +100,7 @@ const CustomResourceNode: React.FC<{ data: any }> = ({ data }) => {
             {icon}
           </Typography>
           <Typography variant="subtitle2" fontWeight="bold" color="primary">
-            {kind}
+            {resourceKind}
           </Typography>
         </Box>
         <Typography variant="body2" fontWeight="bold" gutterBottom>
@@ -245,7 +248,90 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
       setGraph(graphData);
     } catch (err) {
       console.error('Failed to fetch dependency graph:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load dependency graph');
+      const errorMessage = err instanceof Error 
+        ? err.message.includes('Network Error') || err.message.includes('ERR_CONNECTION_REFUSED')
+          ? 'Backend API server is not running. Please start the dev-server with: npm run dev:api'
+          : err.message
+        : 'Failed to load dependency graph';
+      setError(errorMessage);
+      
+      // For demo purposes, set some mock data if in development
+      if (import.meta.env.DEV) {
+        const mockGraph: DependencyGraph = {
+          metadata: {
+            namespace: 'demo',
+            nodeCount: 4,
+            edgeCount: 3,
+            timestamp: new Date().toISOString()
+          },
+          nodes: [
+            {
+              id: 'Pod/webapp@default',
+              kind: 'Pod',
+              name: 'webapp',
+              namespace: 'default',
+              labels: { app: 'webapp', version: 'v1' },
+              creationTimestamp: new Date().toISOString(),
+              status: { phase: 'Running' }
+            },
+            {
+              id: 'Service/webapp-service@default',
+              kind: 'Service',
+              name: 'webapp-service',
+              namespace: 'default',
+              labels: { app: 'webapp' },
+              creationTimestamp: new Date().toISOString(),
+              status: {}
+            },
+            {
+              id: 'ConfigMap/webapp-config@default',
+              kind: 'ConfigMap',
+              name: 'webapp-config',
+              namespace: 'default',
+              labels: {},
+              creationTimestamp: new Date().toISOString(),
+              status: {}
+            },
+            {
+              id: 'Secret/webapp-secret@default',
+              kind: 'Secret',
+              name: 'webapp-secret',
+              namespace: 'default',
+              labels: {},
+              creationTimestamp: new Date().toISOString(),
+              status: {}
+            }
+          ],
+          edges: [
+            {
+              id: 'service-to-pod',
+              source: 'Service/webapp-service@default',
+              target: 'Pod/webapp@default',
+              type: 'service',
+              strength: 'weak',
+              metadata: { reason: 'Service selects pod via labels' }
+            },
+            {
+              id: 'pod-to-config',
+              source: 'Pod/webapp@default',
+              target: 'ConfigMap/webapp-config@default',
+              type: 'volume',
+              strength: 'strong',
+              metadata: { reason: 'Pod mounts ConfigMap as volume' }
+            },
+            {
+              id: 'pod-to-secret',
+              source: 'Pod/webapp@default',
+              target: 'Secret/webapp-secret@default',
+              type: 'volume',
+              strength: 'strong',
+              metadata: { reason: 'Pod mounts Secret as volume' }
+            }
+          ]
+        };
+        setGraph(mockGraph);
+        setError(errorMessage + ' (Showing demo data)');
+      }
     } finally {
       setLoading(false);
     }
@@ -257,7 +343,9 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
 
   // Process graph data into ReactFlow format
   const { processedNodes, processedEdges } = useMemo(() => {
-    if (!graph) return { processedNodes: [], processedEdges: [] };
+    if (!graph || !graph.nodes || !graph.edges) {
+      return { processedNodes: [], processedEdges: [] };
+    }
 
     // Filter nodes
     let filteredNodes = graph.nodes;
@@ -295,19 +383,27 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
     }
 
     // Convert to ReactFlow format
-    const processedNodes: Node[] = filteredNodes.map(node => ({
-      id: node.id,
-      type: 'resourceNode',
-      position: { x: 0, y: 0 },
-      data: {
-        ...node,
-        onClick: () => {
-          setSelectedNode(node);
-          setDetailDialogOpen(true);
-          onNodeClick?.(node);
-        }
-      },
-    }));
+    const processedNodes: Node[] = filteredNodes
+      .filter(node => node && node.id && node.kind && node.name) // Filter out invalid nodes
+      .map(node => ({
+        id: node.id,
+        type: 'resourceNode',
+        position: { x: 0, y: 0 },
+        data: {
+          ...node,
+          // Ensure required fields have defaults
+          kind: node.kind || 'Unknown',
+          name: node.name || 'Unknown',
+          namespace: node.namespace || undefined,
+          labels: node.labels || {},
+          status: node.status || {},
+          onClick: () => {
+            setSelectedNode(node);
+            setDetailDialogOpen(true);
+            onNodeClick?.(node);
+          }
+        },
+      }));
 
     const processedEdges: Edge[] = filteredEdges.map(edge => ({
       id: edge.id,

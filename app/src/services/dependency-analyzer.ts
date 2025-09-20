@@ -321,6 +321,10 @@ class ResourceDependencyAnalyzer {
    * Get icon for resource kind
    */
   getResourceKindIcon(kind: string): string {
+    if (!kind || typeof kind !== 'string') {
+      return '📋'; // Default icon for unknown/invalid kinds
+    }
+    
     switch (kind.toLowerCase()) {
       case 'pod':
         return '🚀';
