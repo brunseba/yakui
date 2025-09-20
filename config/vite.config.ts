@@ -7,6 +7,14 @@ export default defineConfig({
   plugins: [react()],
   root: resolve(__dirname, '../app'),
   publicDir: resolve(__dirname, '../app/public'),
+  server: {
+    host: true, // Enable access from outside container
+    port: 5173,
+    strictPort: true,
+    watch: {
+      usePolling: true // For Docker containers
+    }
+  },
   define: {
     global: 'globalThis',
     'process.env': {},

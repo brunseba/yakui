@@ -1,5 +1,5 @@
 # Dependencies stage
-FROM node:18-alpine as dependencies
+FROM node:22-alpine as dependencies
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY ../../package.json ../../package-lock.json ./
 RUN npm ci
 
 # Build stage
-FROM node:18-alpine as builder
+FROM node:22-alpine as builder
 
 WORKDIR /app
 

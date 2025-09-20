@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --config config/vite.config.ts --port 5173",
+    "dev": "vite --config config/vite.config.ts",
     "dev:api": "node tools/dev-server.cjs",
     "dev:full": "concurrently \"npm run dev:api\" \"npm run dev\" --kill-others-on-fail",
     "build": "tsc -b config/tsconfig.app.json && vite build --config config/vite.config.ts",
