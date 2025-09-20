@@ -9,7 +9,7 @@ const enableVerboseLogging = nodeEnv === 'development';
 const apiTimeout = parseInt(process.env.API_TIMEOUT || '30000');
 const clusterContext = process.env.CLUSTER_CONTEXT || 'kind-krateo-quickstart';
 
-// Enable CORS for frontend - allow any localhost port for development
+// Enable CORS for frontend - allow any localhost port and Docker containers for development
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -17,6 +17,16 @@ app.use(cors({
     
     // Allow any localhost port for development
     if (origin.match(/^http:\/\/localhost:\d+$/)) {
+      return callback(null, true);
+    }
+    
+    // Allow Docker container origins for development
+    if (origin.match(/^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}:\d+$/)) {
+      return callback(null, true);
+    }
+    
+    // Allow host.docker.internal for development
+    if (origin.match(/^http:\/\/host\.docker\.internal:\d+$/)) {
       return callback(null, true);
     }
     

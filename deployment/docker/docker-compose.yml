@@ -14,7 +14,7 @@ services:
       - /app/dist
     environment:
       - NODE_ENV=development
-      - VITE_API_BASE_URL=http://localhost:3001/api
+      - VITE_API_BASE_URL=http://host.docker.internal:3001/api
       - VITE_CLUSTER_CONTEXT=kind-krateo-quickstart
       - VITE_ENABLE_STUB_FEATURES=true
       - VITE_ENABLE_SERVER_MASKING=false
@@ -37,8 +37,7 @@ services:
       context: ../..
       dockerfile: deployment/docker/Dockerfile.dev-backend
     container_name: yakui-backend
-    ports:
-      - "3001:3001"
+    network_mode: "host"  # Use host networking to access Kind cluster
     volumes:
       - ../..:/app
       - /app/node_modules
@@ -48,8 +47,6 @@ services:
       - API_PORT=3001
       - API_TIMEOUT=30000
       - CLUSTER_CONTEXT=kind-krateo-quickstart
-    networks:
-      - yakui-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
