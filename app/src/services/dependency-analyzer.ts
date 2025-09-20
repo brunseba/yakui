@@ -216,8 +216,22 @@ class ResourceDependencyAnalyzer {
    * Get dependency statistics for a graph
    */
   getGraphStatistics(graph: DependencyGraph) {
-    const resourceTypes = new Set(graph.nodes.map(node => node.kind));
-    const dependencyTypes = new Set(graph.edges.map(edge => edge.type));
+    if (!graph || !graph.nodes || !graph.edges) {
+      return {
+        totalNodes: 0,
+        totalEdges: 0,
+        resourceTypes: [],
+        dependencyTypes: [],
+        namespaces: [],
+        strongDependencies: 0,
+        weakDependencies: 0,
+        nodesByType: {},
+        edgesByType: {}
+      };
+    }
+    
+    const resourceTypes = new Set(graph.nodes.map(node => node.kind).filter(Boolean));
+    const dependencyTypes = new Set(graph.edges.map(edge => edge.type).filter(Boolean));
     const namespaces = new Set(graph.nodes.map(node => node.namespace).filter(Boolean));
     
     const strongDependencies = graph.edges.filter(edge => edge.strength === 'strong');
@@ -226,13 +240,17 @@ class ResourceDependencyAnalyzer {
     // Count nodes by type
     const nodesByType: Record<string, number> = {};
     graph.nodes.forEach(node => {
-      nodesByType[node.kind] = (nodesByType[node.kind] || 0) + 1;
+      if (node && node.kind) {
+        nodesByType[node.kind] = (nodesByType[node.kind] || 0) + 1;
+      }
     });
 
     // Count edges by type
     const edgesByType: Record<string, number> = {};
     graph.edges.forEach(edge => {
-      edgesByType[edge.type] = (edgesByType[edge.type] || 0) + 1;
+      if (edge && edge.type) {
+        edgesByType[edge.type] = (edgesByType[edge.type] || 0) + 1;
+      }
     });
 
     return {

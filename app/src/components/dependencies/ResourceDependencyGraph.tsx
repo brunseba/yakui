@@ -468,8 +468,8 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
   };
 
   const statistics = graph ? dependencyAnalyzer.getGraphStatistics(graph) : null;
-  const availableResourceTypes = statistics?.resourceTypes || [];
-  const availableDependencyTypes = statistics?.dependencyTypes || [];
+  const availableResourceTypes = (statistics?.resourceTypes || []).filter(Boolean);
+  const availableDependencyTypes = (statistics?.dependencyTypes || []).filter(Boolean);
 
   if (loading) {
     return (
@@ -513,17 +513,18 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
             <Autocomplete
               multiple
               size="small"
-              options={availableResourceTypes}
-              value={selectedResourceTypes}
-              onChange={(_, value) => setSelectedResourceTypes(value)}
+              options={availableResourceTypes.filter(Boolean)}
+              value={selectedResourceTypes.filter(Boolean)}
+              onChange={(_, value) => setSelectedResourceTypes((value || []).filter(Boolean))}
               renderInput={(params) => (
                 <TextField {...params} label="Resource Types" />
               )}
+              getOptionLabel={(option) => option || 'Unknown'}
               renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
+                value.filter(Boolean).map((option, index) => (
                   <Chip
-                    key={option}
-                    label={option}
+                    key={option || index}
+                    label={option || 'Unknown'}
                     size="small"
                     {...getTagProps({ index })}
                   />
@@ -536,18 +537,21 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
             <Autocomplete
               multiple
               size="small"
-              options={availableDependencyTypes}
-              value={selectedDependencyTypes}
-              onChange={(_, value) => setSelectedDependencyTypes(value as DependencyType[])}
+              options={availableDependencyTypes.filter(Boolean)}
+              value={selectedDependencyTypes.filter(Boolean)}
+              onChange={(_, value) => setSelectedDependencyTypes((value || []).filter(Boolean) as DependencyType[])}
               renderInput={(params) => (
                 <TextField {...params} label="Dependency Types" />
               )}
-              getOptionLabel={(option) => dependencyAnalyzer.getDependencyTypeDescription(option)}
+              getOptionLabel={(option) => {
+                if (!option || typeof option !== 'string') return 'Unknown';
+                return dependencyAnalyzer.getDependencyTypeDescription(option);
+              }}
               renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
+                value.filter(Boolean).map((option, index) => (
                   <Chip
-                    key={option}
-                    label={option}
+                    key={option || index}
+                    label={option || 'Unknown'}
                     size="small"
                     style={{ backgroundColor: dependencyAnalyzer.getDependencyTypeColor(option) }}
                     {...getTagProps({ index })}
