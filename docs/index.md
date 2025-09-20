@@ -2,30 +2,31 @@
 
 A comprehensive web-based administration interface for Kubernetes clusters, providing enterprise-grade resource management capabilities.
 
-## Latest Release: v1.1.0
+## Latest Release: v2.0.0
 
-### 🎉 Resource Detail Actions
+### 📁 Project Structure Reorganization
 
-The latest release introduces comprehensive resource detail views and management capabilities:
+The latest release introduces a major project structure reorganization to improve maintainability and development experience:
 
-#### ✨ Key Features
+#### ✨ New Structure
 
-- **📋 Resource Detail Views**: In-depth views for pods, deployments, services, configmaps, and secrets
-- **📊 Tabbed Interface**: Organized display of resource details, events, and related resources
-- **🔍 YAML Viewer**: Integrated Monaco editor with syntax highlighting
-- **📝 Pod Logs**: Terminal-style log viewer for debugging and monitoring
-- **🔗 Navigation**: Enhanced resource browsing with detailed navigation
-- **⚡ Management Actions**: View, edit, and delete resources with confirmation dialogs
+- **📁 app/**: Application source code (src/, public/, index.html)
+- **⚙️ config/**: All configuration files (tsconfig, vite, eslint, nginx, etc.)
+- **🔧 tools/**: Development tools, scripts, and Taskfile
+- **🚀 deployment/**: Docker and Kubernetes deployment configs (unchanged)
+- **📚 docs/**: Documentation (unchanged)
+- **🔄 Updated Configurations**: All build tools and development workflows updated
 
-#### 🚀 Resource Types Supported
+#### 🔧 Technical Changes
 
-| Resource Type | Detail View | Events | Logs | YAML | Actions |
-|---------------|-------------|---------|------|------|---------|
-| **Pods** | ✅ Status, containers, node info | ✅ | ✅ | ✅ | View, Delete |
-| **Deployments** | ✅ Replicas, strategy, template | ✅ | ❌ | ✅ | View, Delete |
-| **Services** | ✅ Configuration, ports, IPs | ✅ | ❌ | ✅ | View, Delete |
-| **ConfigMaps** | ✅ Data viewer, keys | ✅ | ❌ | ✅ | View, Delete |
-| **Secrets** | ✅ Secure key display | ✅ | ❌ | ✅ | View, Delete |
+| Component | Old Location | New Location | Status |
+|-----------|-------------|--------------|--------|
+| **Source Code** | `src/` | `app/src/` | ✅ Updated |
+| **Public Assets** | `public/` | `app/public/` | ✅ Updated |
+| **Entry Point** | `index.html` | `app/index.html` | ✅ Updated |
+| **Configurations** | Root directory | `config/` | ✅ Updated |
+| **Dev Tools** | Root/scripts | `tools/` | ✅ Updated |
+| **Build System** | Multiple locations | Centralized paths | ✅ Updated |
 
 ## Getting Started
 
@@ -84,17 +85,29 @@ DELETE /api/resources/:type/:namespace/:name          # Delete resource
 ### Project Structure
 
 ```
-src/
-├── components/
-│   ├── resources/
-│   │   ├── ResourceManager.tsx     # Resource listing and management
-│   │   └── ResourceDetail.tsx      # Detailed resource views
-│   ├── namespaces/                 # Namespace management
-│   ├── crds/                       # Custom Resource Definitions
-│   └── layout/                     # Application layout
-├── services/
-│   └── kubernetes-api.ts           # API service layer
-└── types/                          # TypeScript definitions
+app/
+├── src/
+│   ├── components/
+│   │   ├── resources/
+│   │   │   ├── ResourceManager.tsx     # Resource listing and management
+│   │   │   └── ResourceDetail.tsx      # Detailed resource views
+│   │   ├── namespaces/                 # Namespace management
+│   │   ├── crds/                       # Custom Resource Definitions
+│   │   └── layout/                     # Application layout
+│   ├── services/
+│   │   └── kubernetes-api.ts           # API service layer
+│   └── types/                          # TypeScript definitions
+├── public/                             # Static assets
+└── index.html                          # Application entry point
+config/
+├── tsconfig*.json                      # TypeScript configurations
+├── vite.config.ts                      # Build configuration
+├── eslint.config.js                    # Linting configuration
+└── nginx.conf                          # Server configuration
+tools/
+├── dev-server.cjs                      # Development API server
+├── Taskfile.yml                        # Task automation
+└── scripts/                            # Development scripts
 ```
 
 ### Contributing
@@ -152,6 +165,6 @@ This project is licensed under the MIT License.
 
 ---
 
-**Current Version**: v1.1.0  
+**Current Version**: v2.0.0  
 **Last Updated**: 2025-09-20  
 **Kubernetes Compatibility**: v1.24+
