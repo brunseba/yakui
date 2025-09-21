@@ -56,7 +56,7 @@ import {
   Stop as StopIcon
 } from '@mui/icons-material';
 import Editor from '@monaco-editor/react';
-import * as k8s from '@kubernetes/client-node';
+import { V1Deployment, V1Service, V1Pod, V1ConfigMap, V1Secret } from '../../types';
 import { kubernetesService } from '../../services/kubernetes-api';
 import * as yaml from 'js-yaml';
 import HelmManager from '../helm/HelmManager';
@@ -84,11 +84,11 @@ function TabPanel(props: TabPanelProps) {
 }
 
 interface ResourceData {
-  deployments: k8s.V1Deployment[];
-  services: k8s.V1Service[];
-  pods: k8s.V1Pod[];
-  configMaps: k8s.V1ConfigMap[];
-  secrets: k8s.V1Secret[];
+  deployments: V1Deployment[];
+  services: V1Service[];
+  pods: V1Pod[];
+  configMaps: V1ConfigMap[];
+  secrets: V1Secret[];
 }
 
 const ResourceManager: React.FC = () => {
@@ -227,6 +227,14 @@ const ResourceManager: React.FC = () => {
   };
 
   const getTemplateYaml = (type: string): string => {
+    const defaultAppName = import.meta.env.VITE_DEFAULT_APP_NAME || 'my-app';
+    const defaultImage = import.meta.env.VITE_DEFAULT_CONTAINER_IMAGE || 'nginx:latest';
+    const defaultReplicas = import.meta.env.VITE_DEFAULT_REPLICAS || '3';
+    const defaultMemoryRequest = import.meta.env.VITE_DEFAULT_MEMORY_REQUEST || '64Mi';
+    const defaultMemoryLimit = import.meta.env.VITE_DEFAULT_MEMORY_LIMIT || '128Mi';
+    const defaultCpuRequest = import.meta.env.VITE_DEFAULT_CPU_REQUEST || '250m';
+    const defaultCpuLimit = import.meta.env.VITE_DEFAULT_CPU_LIMIT || '500m';
+    
     const templates: Record<string, string> = {
       deployment: `apiVersion: apps/v1
 kind: Deployment
@@ -234,39 +242,39 @@ metadata:
   name: my-deployment
   namespace: ${selectedNamespace}
   labels:
-    app: my-app
+    app: ${defaultAppName}
 spec:
-  replicas: 3
+  replicas: ${defaultReplicas}
   selector:
     matchLabels:
-      app: my-app
+      app: ${defaultAppName}
   template:
     metadata:
       labels:
-        app: my-app
+        app: ${defaultAppName}
     spec:
       containers:
       - name: my-container
-        image: nginx:latest
+        image: ${defaultImage}
         ports:
         - containerPort: 80
         resources:
           requests:
-            memory: "64Mi"
-            cpu: "250m"
+            memory: "${defaultMemoryRequest}"
+            cpu: "${defaultCpuRequest}"
           limits:
-            memory: "128Mi"
-            cpu: "500m"`,
+            memory: "${defaultMemoryLimit}"
+            cpu: "${defaultCpuLimit}"`,
       service: `apiVersion: v1
 kind: Service
 metadata:
   name: my-service
   namespace: ${selectedNamespace}
   labels:
-    app: my-app
+    app: ${defaultAppName}
 spec:
   selector:
-    app: my-app
+    app: ${defaultAppName}
   ports:
   - port: 80
     targetPort: 80
@@ -280,11 +288,11 @@ metadata:
 data:
   config.yaml: |
     database:
-      host: localhost
-      port: 5432
+      host: ${import.meta.env.VITE_DEFAULT_DB_HOST || 'database-service'}
+      port: ${import.meta.env.VITE_DEFAULT_DB_PORT || '5432'}
   app.properties: |
-    debug=true
-    log.level=info`,
+    debug=${import.meta.env.VITE_DEFAULT_DEBUG_MODE || 'false'}
+    log.level=${import.meta.env.VITE_DEFAULT_LOG_LEVEL || 'info'}`,
       secret: `apiVersion: v1
 kind: Secret
 metadata:

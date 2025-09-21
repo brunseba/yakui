@@ -137,10 +137,22 @@ class ResourceDependencyAnalyzer {
         params.append('includeCustom', filters.includeCustomResources.toString());
       }
 
-      if (filters.maxNodes) {
-        params.append('maxNodes', filters.maxNodes.toString());
+      // Set reasonable defaults for performance
+      const maxNodes = filters.maxNodes || 50; // Lower default for better performance
+      params.append('maxNodes', maxNodes.toString());
+      
+      // Add resource type filtering
+      if (filters.resourceTypes && filters.resourceTypes.length > 0) {
+        params.append('resourceTypes', filters.resourceTypes.join(','));
+      }
+      
+      // Add dependency type filtering
+      if (filters.dependencyTypes && filters.dependencyTypes.length > 0) {
+        params.append('dependencyTypes', filters.dependencyTypes.join(','));
       }
 
+      console.log('Fetching dependency graph with params:', params.toString());
+      
       const response = await axios.get(
         `${API_BASE_URL}/dependencies/graph?${params}`,
         { timeout: this.apiTimeout }

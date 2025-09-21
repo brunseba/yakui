@@ -458,7 +458,7 @@ const FeatureStatus: React.FC<FeatureStatusProps> = ({
         <Typography variant="subtitle2" gutterBottom>Development Setup</Typography>
         <Typography variant="body2">
           Run <strong>npm run dev:full</strong> to start both the frontend and backend API server. 
-          The application uses HTTP-based Kubernetes API proxying through a Node.js backend on localhost:3001.
+          The application uses HTTP-based Kubernetes API proxying through a Node.js backend on {import.meta.env.VITE_BACKEND_URL || 'localhost:3001'}.
           Most features require an active connection to a Kubernetes cluster.
         </Typography>
       </Alert>

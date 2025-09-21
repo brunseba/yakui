@@ -148,10 +148,10 @@ const navigationItems: NavigationItem[] = [
         path: '/dictionary/crds'
       },
       {
-        id: 'custom-resources-dependencies',
-        label: 'CRD Dependencies',
-        icon: <AccountTreeIcon />,
-        path: '/dictionary/dependencies'
+        id: 'crd-analysis',
+        label: 'CRD Analysis',
+        icon: <AssessmentIcon />,
+        path: '/crd-analysis'
       }
     ]
   },

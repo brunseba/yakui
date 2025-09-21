@@ -225,6 +225,13 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
   onEdgeClick,
   initialFocusResource
 }) => {
+  // Apply default filters for better performance
+  const defaultFilters = {
+    maxNodes: 30, // Start with a smaller default
+    namespace: 'default', // Default to a specific namespace
+    ...filters
+  };
+  
   const [graph, setGraph] = useState<DependencyGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -244,98 +251,55 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const graphData = await dependencyAnalyzer.getDependencyGraph(filters);
+      
+      // Try with filters first, if timeout then try with smaller dataset
+      let graphData;
+      try {
+        graphData = await dependencyAnalyzer.getDependencyGraph(defaultFilters);
+      } catch (initialError: any) {
+        if (initialError?.message?.includes('timeout')) {
+          console.warn('Initial request timed out, trying with reduced dataset...');
+          // Retry with more restrictive filters for performance
+          const fallbackFilters = {
+            ...defaultFilters,
+            maxNodes: Math.min(defaultFilters.maxNodes || 30, 15), // Even more restrictive
+            namespace: defaultFilters.namespace || 'default' // Default to specific namespace if none specified
+          };
+          
+          try {
+            graphData = await dependencyAnalyzer.getDependencyGraph(fallbackFilters);
+            console.log('Successfully loaded with fallback filters');
+          } catch (fallbackError) {
+            throw initialError; // Rethrow original error if fallback also fails
+          }
+        } else {
+          throw initialError;
+        }
+      }
+      
+      console.log('Graph data loaded successfully:', {
+        nodes: graphData.nodes?.length || 0,
+        edges: graphData.edges?.length || 0,
+        namespace: graphData.metadata?.namespace
+      });
+      
       setGraph(graphData);
     } catch (err) {
       console.error('Failed to fetch dependency graph:', err);
       const errorMessage = err instanceof Error 
         ? err.message.includes('Network Error') || err.message.includes('ERR_CONNECTION_REFUSED')
           ? 'Backend API server is not running. Please start the dev-server with: npm run dev:api'
-          : err.message
+          : err.message.includes('timeout')
+            ? 'Request timed out. The cluster has too many resources. Try filtering by namespace or reducing the number of nodes.'
+            : err.message
         : 'Failed to load dependency graph';
       setError(errorMessage);
       
-      // For demo purposes, set some mock data if in development
-      if (import.meta.env.DEV) {
-        const mockGraph: DependencyGraph = {
-          metadata: {
-            namespace: 'demo',
-            nodeCount: 4,
-            edgeCount: 3,
-            timestamp: new Date().toISOString()
-          },
-          nodes: [
-            {
-              id: 'Pod/webapp@default',
-              kind: 'Pod',
-              name: 'webapp',
-              namespace: 'default',
-              labels: { app: 'webapp', version: 'v1' },
-              creationTimestamp: new Date().toISOString(),
-              status: { phase: 'Running' }
-            },
-            {
-              id: 'Service/webapp-service@default',
-              kind: 'Service',
-              name: 'webapp-service',
-              namespace: 'default',
-              labels: { app: 'webapp' },
-              creationTimestamp: new Date().toISOString(),
-              status: {}
-            },
-            {
-              id: 'ConfigMap/webapp-config@default',
-              kind: 'ConfigMap',
-              name: 'webapp-config',
-              namespace: 'default',
-              labels: {},
-              creationTimestamp: new Date().toISOString(),
-              status: {}
-            },
-            {
-              id: 'Secret/webapp-secret@default',
-              kind: 'Secret',
-              name: 'webapp-secret',
-              namespace: 'default',
-              labels: {},
-              creationTimestamp: new Date().toISOString(),
-              status: {}
-            }
-          ],
-          edges: [
-            {
-              id: 'service-to-pod',
-              source: 'Service/webapp-service@default',
-              target: 'Pod/webapp@default',
-              type: 'service',
-              strength: 'weak',
-              metadata: { reason: 'Service selects pod via labels' }
-            },
-            {
-              id: 'pod-to-config',
-              source: 'Pod/webapp@default',
-              target: 'ConfigMap/webapp-config@default',
-              type: 'volume',
-              strength: 'strong',
-              metadata: { reason: 'Pod mounts ConfigMap as volume' }
-            },
-            {
-              id: 'pod-to-secret',
-              source: 'Pod/webapp@default',
-              target: 'Secret/webapp-secret@default',
-              type: 'volume',
-              strength: 'strong',
-              metadata: { reason: 'Pod mounts Secret as volume' }
-            }
-          ]
-        };
-        setGraph(mockGraph);
-        setError(errorMessage + ' (Showing demo data)');
-      }
+      console.warn('Dependency graph service error:', errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [defaultFilters]);
 
   useEffect(() => {
     fetchGraph();
@@ -347,18 +311,49 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
       return { processedNodes: [], processedEdges: [] };
     }
 
-    // Filter nodes
-    let filteredNodes = graph.nodes;
+    console.log('Processing graph with:', graph.nodes.length, 'nodes and', graph.edges.length, 'edges');
+
+    // Filter nodes - add safety checks
+    let filteredNodes = graph.nodes.filter(node => {
+      // Validate node structure
+      if (!node || typeof node !== 'object') {
+        console.warn('Invalid node detected:', node);
+        return false;
+      }
+      
+      // Ensure required fields exist with type checking
+      if (!node.id || typeof node.id !== 'string') {
+        console.warn('Node missing valid id:', node);
+        return false;
+      }
+      
+      if (!node.name || typeof node.name !== 'string') {
+        console.warn('Node missing valid name:', node);
+        return false;
+      }
+      
+      if (!node.kind || typeof node.kind !== 'string') {
+        console.warn('Node missing valid kind:', node);
+        return false;
+      }
+      
+      return true;
+    });
     
-    if (searchTerm) {
+    if (searchTerm && typeof searchTerm === 'string' && searchTerm.trim()) {
       filteredNodes = filteredNodes.filter(node => {
         if (!node) return false;
-        const searchLower = searchTerm.toLowerCase();
-        return (
-          (node.name && node.name.toLowerCase().includes(searchLower)) ||
-          (node.kind && node.kind.toLowerCase().includes(searchLower)) ||
-          (node.namespace && node.namespace.toLowerCase().includes(searchLower))
-        );
+        try {
+          const searchLower = searchTerm.toLowerCase();
+          const nameMatch = node.name && typeof node.name === 'string' && node.name.toLowerCase().includes(searchLower);
+          const kindMatch = node.kind && typeof node.kind === 'string' && node.kind.toLowerCase().includes(searchLower);
+          const nsMatch = node.namespace && typeof node.namespace === 'string' && node.namespace.toLowerCase().includes(searchLower);
+          
+          return nameMatch || kindMatch || nsMatch;
+        } catch (error) {
+          console.warn('Error filtering node by search term:', error, node);
+          return false;
+        }
       });
     }
     
@@ -371,11 +366,28 @@ const ResourceDependencyGraphInner: React.FC<ResourceDependencyGraphProps> = ({
     // Create node IDs set for edge filtering
     const nodeIds = new Set(filteredNodes.map(node => node.id));
 
-    // Filter edges
-    let filteredEdges = graph.edges.filter(edge => 
-      edge && edge.source && edge.target &&
-      nodeIds.has(edge.source) && nodeIds.has(edge.target)
-    );
+    // Filter edges - add safety checks
+    let filteredEdges = graph.edges.filter(edge => {
+      // Validate edge structure
+      if (!edge || typeof edge !== 'object') {
+        console.warn('Invalid edge detected:', edge);
+        return false;
+      }
+      
+      // Check required fields
+      if (!edge.source || typeof edge.source !== 'string') {
+        console.warn('Edge missing valid source:', edge);
+        return false;
+      }
+      
+      if (!edge.target || typeof edge.target !== 'string') {
+        console.warn('Edge missing valid target:', edge);
+        return false;
+      }
+      
+      // Check that both source and target nodes exist in filtered nodes
+      return nodeIds.has(edge.source) && nodeIds.has(edge.target);
+    });
 
     if (selectedDependencyTypes.length > 0) {
       filteredEdges = filteredEdges.filter(edge => 

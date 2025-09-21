@@ -34,327 +34,13 @@ import {
   Rating
 } from '@mui/material';
 import {
-  Security as SecurityIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Shield as ShieldIcon,
-  Lock as LockIcon,
-  VpnKey as KeyIcon,
-  BugReport as BugIcon,
-  Visibility as VisibilityIcon,
-  ExpandMore as ExpandMoreIcon,
-  Info as InfoIcon,
-  Code as CodeIcon,
-  Build as BuildIcon,
-  Assessment as AssessmentIcon,
-  Https as HttpsIcon,
-  AdminPanelSettings as AdminPanelSettingsIcon,
-  Token as TokenIcon,
-  DataObject as DataObjectIcon,
-  Api as ApiIcon
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
+import { generateSecurityItems, getSecurityMetrics, SecurityItem } from '../../config/security-compliance';
 
-interface SecurityItem {
-  id: string;
-  category: 'authentication' | 'authorization' | 'data-protection' | 'input-validation' | 'transport' | 'logging' | 'network' | 'secrets';
-  name: string;
-  implementationType: 'fully-implemented' | 'mockup-only' | 'partial-mock' | 'hardened' | 'not-implemented';
-  securityLevel: 'production-ready' | 'development-only' | 'insecure' | 'needs-hardening';
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
-  description: string;
-  currentState: string;
-  securityConcerns: string[];
-  improvements: string[];
-  components: string[];
-  mockAspects?: string[];
-  realAspects?: string[];
-  complianceFrameworks: string[];
-  priority: 'high' | 'medium' | 'low';
-  estimatedEffort: string;
-  icon: React.ReactElement;
-}
+// SecurityItem interface is now imported from config
 
-const securityItems: SecurityItem[] = [
-  {
-    id: 'auth-system',
-    category: 'authentication',
-    name: 'Authentication System',
-    implementationType: 'partial-mock',
-    securityLevel: 'development-only',
-    riskLevel: 'medium',
-    description: 'Authentication system with kubeconfig and token support',
-    currentState: 'Working UI with backend proxy, but limited security hardening',
-    securityConcerns: [
-      'Tokens stored in localStorage (not httpOnly cookies)',
-      'No token rotation mechanism',
-      'Basic session timeout (24h hardcoded)',
-      'No multi-factor authentication',
-      'CORS configured for any localhost port in development'
-    ],
-    improvements: [
-      'Implement secure token storage (httpOnly cookies)',
-      'Add token rotation and refresh mechanism',
-      'Implement MFA support',
-      'Add proper session management',
-      'Harden CORS configuration for production'
-    ],
-    components: ['AuthContext.tsx', 'Login.tsx', 'dev-server.cjs'],
-    mockAspects: [
-      'Basic CORS allowing any localhost',
-      'Simple localStorage persistence',
-      'No advanced auth protocols (OAuth2/OIDC)'
-    ],
-    realAspects: [
-      'Real Kubernetes authentication',
-      'Session timeout mechanism',
-      'Error handling and validation'
-    ],
-    complianceFrameworks: ['CIS', 'NIST'],
-    priority: 'high',
-    estimatedEffort: '1-2 weeks',
-    icon: <KeyIcon />
-  },
-  {
-    id: 'input-validation',
-    category: 'input-validation',
-    name: 'Input Validation & Sanitization',
-    implementationType: 'hardened',
-    securityLevel: 'production-ready',
-    riskLevel: 'low',
-    description: 'Comprehensive input validation system for Kubernetes resources',
-    currentState: 'Well-implemented validation framework with k8s-specific patterns',
-    securityConcerns: [
-      'No XSS protection headers explicitly set',
-      'YAML validation could be more comprehensive'
-    ],
-    improvements: [
-      'Add CSP headers',
-      'Implement more robust YAML parsing',
-      'Add rate limiting on validation endpoints'
-    ],
-    components: ['utils/validation.ts', 'contexts/ValidationContext.tsx'],
-    realAspects: [
-      'Comprehensive regex patterns for k8s resources',
-      'Field-level validation rules',
-      'YAML syntax checking',
-      'Form validation framework'
-    ],
-    complianceFrameworks: ['OWASP', 'CIS'],
-    priority: 'medium',
-    estimatedEffort: '3-5 days',
-    icon: <ShieldIcon />
-  },
-  {
-    id: 'data-protection',
-    category: 'data-protection',
-    name: 'Sensitive Data Protection',
-    implementationType: 'partial-mock',
-    securityLevel: 'needs-hardening',
-    riskLevel: 'high',
-    description: 'Protection of sensitive data like tokens and secrets',
-    currentState: 'Basic masking and sanitization, needs encryption',
-    securityConcerns: [
-      'Secrets stored in browser localStorage',
-      'Server URLs partially masked but not encrypted',
-      'Console logging may expose sensitive data',
-      'No data encryption at rest or in transit verification'
-    ],
-    improvements: [
-      'Implement client-side encryption for sensitive data',
-      'Use secure storage mechanisms',
-      'Add data classification and handling policies',
-      'Implement proper secret management integration'
-    ],
-    components: ['utils/errorHandling.ts', 'services/kubernetes-api.ts'],
-    mockAspects: [
-      'Basic string masking (****)',
-      'Simple log sanitization'
-    ],
-    realAspects: [
-      'URL masking functionality',
-      'Context-aware data sanitization'
-    ],
-    complianceFrameworks: ['GDPR', 'SOX', 'PCI-DSS'],
-    priority: 'high',
-    estimatedEffort: '2-3 weeks',
-    icon: <LockIcon />
-  },
-  {
-    id: 'transport-security',
-    category: 'transport',
-    name: 'Transport Security',
-    implementationType: 'mockup-only',
-    securityLevel: 'development-only',
-    riskLevel: 'high',
-    description: 'HTTPS/TLS configuration and secure communications',
-    currentState: 'HTTP only in development, no HTTPS enforcement',
-    securityConcerns: [
-      'All communications over HTTP in development',
-      'No HTTPS enforcement',
-      'No TLS certificate validation',
-      'Missing security headers (HSTS, CSP, etc.)',
-      'No certificate pinning'
-    ],
-    improvements: [
-      'Implement HTTPS in development and production',
-      'Add security headers middleware',
-      'Implement certificate validation',
-      'Add HSTS and other security headers',
-      'Configure proper TLS settings'
-    ],
-    components: ['dev-server.cjs', 'vite.config.ts'],
-    mockAspects: [
-      'HTTP-only development server',
-      'Permissive CORS configuration',
-      'No security headers'
-    ],
-    complianceFrameworks: ['NIST', 'ISO 27001'],
-    priority: 'high',
-    estimatedEffort: '1 week',
-    icon: <HttpsIcon />
-  },
-  {
-    id: 'rbac-implementation',
-    category: 'authorization',
-    name: 'RBAC & Authorization',
-    implementationType: 'mockup-only',
-    securityLevel: 'development-only',
-    riskLevel: 'critical',
-    description: 'Role-based access control and authorization mechanisms',
-    currentState: 'UI mockup with no real authorization enforcement',
-    securityConcerns: [
-      'No actual RBAC enforcement in frontend',
-      'Missing role-based route protection',
-      'No permission validation before operations',
-      'Cluster admin privileges assumed',
-      'No audit logging for authorization decisions'
-    ],
-    improvements: [
-      'Implement real RBAC enforcement',
-      'Add role-based route guards',
-      'Validate permissions before API calls',
-      'Implement least-privilege principle',
-      'Add authorization audit logging'
-    ],
-    components: ['rbac/RBACManager.tsx', 'rbac/EnhancedRBACManager.tsx'],
-    mockAspects: [
-      'UI components for RBAC management',
-      'Mock permission displays',
-      'Simulated role assignments'
-    ],
-    complianceFrameworks: ['CIS', 'NIST', 'SOC2'],
-    priority: 'high',
-    estimatedEffort: '3-4 weeks',
-    icon: <AdminPanelSettingsIcon />
-  },
-  {
-    id: 'api-security',
-    category: 'network',
-    name: 'API Security',
-    implementationType: 'partial-mock',
-    securityLevel: 'needs-hardening',
-    riskLevel: 'medium',
-    description: 'API endpoint security and request validation',
-    currentState: 'Basic API structure with minimal security controls',
-    securityConcerns: [
-      'No rate limiting implemented',
-      'Missing API authentication headers',
-      'No request size limits',
-      'No API versioning strategy',
-      'Limited error handling exposes internal details'
-    ],
-    improvements: [
-      'Implement rate limiting',
-      'Add API key authentication',
-      'Set request size limits',
-      'Implement proper error handling',
-      'Add API monitoring and alerting'
-    ],
-    components: ['services/kubernetes-api.ts', 'dev-server.cjs'],
-    realAspects: [
-      'Request/response handling',
-      'Error propagation',
-      'Timeout management'
-    ],
-    mockAspects: [
-      'Basic CORS configuration',
-      'Simple error responses',
-      'No authentication middleware'
-    ],
-    complianceFrameworks: ['OWASP API', 'NIST'],
-    priority: 'medium',
-    estimatedEffort: '1-2 weeks',
-    icon: <ApiIcon />
-  },
-  {
-    id: 'security-monitoring',
-    category: 'logging',
-    name: 'Security Monitoring & Logging',
-    implementationType: 'mockup-only',
-    securityLevel: 'development-only',
-    riskLevel: 'medium',
-    description: 'Security event logging and monitoring capabilities',
-    currentState: 'Basic console logging with minimal security focus',
-    securityConcerns: [
-      'No structured security logging',
-      'Missing security event correlation',
-      'No intrusion detection',
-      'Limited audit trail',
-      'No alerting on security events'
-    ],
-    improvements: [
-      'Implement structured security logging',
-      'Add security event monitoring',
-      'Create audit trail for all actions',
-      'Implement alerting system',
-      'Add threat detection capabilities'
-    ],
-    components: ['utils/errorHandling.ts', 'SecurityDashboard.tsx'],
-    mockAspects: [
-      'Mock security dashboard',
-      'Simulated security findings',
-      'Static compliance checks'
-    ],
-    realAspects: [
-      'Error logging framework',
-      'Basic context sanitization'
-    ],
-    complianceFrameworks: ['SOC2', 'ISO 27001', 'NIST'],
-    priority: 'medium',
-    estimatedEffort: '2-3 weeks',
-    icon: <AssessmentIcon />
-  },
-  {
-    id: 'secrets-management',
-    category: 'secrets',
-    name: 'Secrets Management',
-    implementationType: 'not-implemented',
-    securityLevel: 'insecure',
-    riskLevel: 'critical',
-    description: 'Secure handling of Kubernetes secrets and sensitive configuration',
-    currentState: 'No dedicated secrets management, plain text storage',
-    securityConcerns: [
-      'No integration with secret management systems',
-      'Secrets potentially logged or exposed',
-      'No secret rotation capabilities',
-      'No encryption of sensitive data',
-      'Missing secure secret distribution'
-    ],
-    improvements: [
-      'Integrate with HashiCorp Vault or similar',
-      'Implement secret rotation',
-      'Add encryption for sensitive data',
-      'Create secure secret injection',
-      'Add secret scanning and detection'
-    ],
-    components: ['Not implemented'],
-    complianceFrameworks: ['CIS', 'NIST', 'PCI-DSS'],
-    priority: 'high',
-    estimatedEffort: '4-6 weeks',
-    icon: <TokenIcon />
-  }
-];
+// Security items are now loaded dynamically from configuration
 
 interface SecurityComplianceStatusProps {
   title?: string;
@@ -371,24 +57,25 @@ const SecurityComplianceStatus: React.FC<SecurityComplianceStatusProps> = ({
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [expandedAccordion, setExpandedAccordion] = useState<string | false>(false);
 
+  // Load security items and metrics from configuration
+  const securityItems = generateSecurityItems();
+  const metrics = getSecurityMetrics();
+
   const filteredItems = showOnlyCategory 
     ? securityItems.filter(item => item.category === showOnlyCategory)
     : securityItems;
 
-  // Calculate overall security metrics
-  const totalItems = securityItems.length;
-  const fullyImplemented = securityItems.filter(item => item.implementationType === 'fully-implemented').length;
-  const hardened = securityItems.filter(item => item.implementationType === 'hardened').length;
-  const mockupOnly = securityItems.filter(item => item.implementationType === 'mockup-only').length;
-  const partialMock = securityItems.filter(item => item.implementationType === 'partial-mock').length;
-  const notImplemented = securityItems.filter(item => item.implementationType === 'not-implemented').length;
-  
-  const criticalRisks = securityItems.filter(item => item.riskLevel === 'critical').length;
-  const highRisks = securityItems.filter(item => item.riskLevel === 'high').length;
-  
-  const overallSecurityScore = Math.round(
-    ((fullyImplemented * 100) + (hardened * 100) + (partialMock * 50) + (mockupOnly * 20)) / totalItems
-  );
+  const {
+    totalItems,
+    fullyImplemented,
+    hardened,
+    mockupOnly,
+    partialMock,
+    notImplemented,
+    criticalRisks,
+    highRisks,
+    overallSecurityScore
+  } = metrics;
 
   const getImplementationColor = (type: string) => {
     switch (type) {

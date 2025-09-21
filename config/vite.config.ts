@@ -39,6 +39,13 @@ export default defineConfig({
       'path': './src/polyfills/node.ts',
       'os': './src/polyfills/node.ts',
       'crypto': './src/polyfills/node.ts',
+      // Redirect Kubernetes client imports to stub
+      '@kubernetes/client-node': './src/polyfills/kubernetes-stub.ts',
+      // Redirect problematic service to API service
+      './services/kubernetes': './src/services/kubernetes-api',
+      '../services/kubernetes': './src/services/kubernetes-api',
+      './src/services/kubernetes': './src/services/kubernetes-api',
+      '../src/services/kubernetes': './src/services/kubernetes-api',
     },
   },
   optimizeDeps: {

@@ -96,14 +96,18 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   handleReportBug = () => {
     const { error, errorInfo, errorId } = this.state;
+    
+    const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@company.local';
+    const appName = import.meta.env.VITE_APP_NAME || 'Kubernetes Admin UI';
 
     // Create a mailto link or open issue tracker
-    const subject = encodeURIComponent(`Bug Report: ${error?.message || 'Unexpected Error'}`);
+    const subject = encodeURIComponent(`${appName} Bug Report: ${error?.message || 'Unexpected Error'}`);
     const body = encodeURIComponent(`
 Error ID: ${errorId}
 Message: ${error?.message}
 Time: ${new Date().toISOString()}
 URL: ${window.location.href}
+User Agent: ${navigator.userAgent}
 
 Stack Trace:
 ${error?.stack || 'Not available'}
@@ -115,7 +119,7 @@ Please describe what you were doing when this error occurred:
 [Your description here]
     `);
 
-    window.open(`mailto:support@example.com?subject=${subject}&body=${body}`);
+    window.open(`mailto:${supportEmail}?subject=${subject}&body=${body}`);
   };
 
   render() {

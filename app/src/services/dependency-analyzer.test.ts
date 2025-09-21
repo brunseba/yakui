@@ -13,12 +13,13 @@ describe('ResourceDependencyAnalyzer', () => {
 
   describe('getResourceDependencies', () => {
     it('should fetch resource dependencies successfully', async () => {
+      const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
       const mockResponse = {
         data: {
           resource: {
             kind: 'Pod',
             name: 'test-pod',
-            namespace: 'default',
+            namespace: testNamespace,
             uid: 'test-uid',
             labels: { app: 'test' }
           },
@@ -26,7 +27,7 @@ describe('ResourceDependencyAnalyzer', () => {
             outgoing: [
               {
                 type: 'volume',
-                target: 'ConfigMap/test-config@default',
+                target: `ConfigMap/test-config@${testNamespace}`,
                 strength: 'strong',
                 metadata: {
                   field: 'spec.volumes',
@@ -42,10 +43,10 @@ describe('ResourceDependencyAnalyzer', () => {
 
       mockedAxios.get.mockResolvedValueOnce(mockResponse);
 
-      const result = await dependencyAnalyzer.getResourceDependencies('Pod', 'test-pod', 'default');
+      const result = await dependencyAnalyzer.getResourceDependencies('Pod', 'test-pod', testNamespace);
 
       expect(mockedAxios.get).toHaveBeenCalledWith(
-        'http://localhost:3001/api/dependencies/Pod/test-pod?namespace=default',
+        `http://localhost:3001/api/dependencies/Pod/test-pod?namespace=${testNamespace}`,
         { timeout: 30000 }
       );
       expect(result).toEqual(mockResponse.data);
@@ -56,7 +57,7 @@ describe('ResourceDependencyAnalyzer', () => {
       mockedAxios.get.mockRejectedValueOnce(new Error(errorMessage));
 
       await expect(
-        dependencyAnalyzer.getResourceDependencies('Pod', 'test-pod', 'default')
+        dependencyAnalyzer.getResourceDependencies('Pod', 'test-pod', testNamespace)
       ).rejects.toThrow('Failed to get dependencies for Pod/test-pod: Network error');
     });
 
@@ -64,38 +65,40 @@ describe('ResourceDependencyAnalyzer', () => {
       const mockResponse = { data: { resource: {}, dependencies: { outgoing: [], incoming: [], related: [] } } };
       mockedAxios.get.mockResolvedValueOnce(mockResponse);
 
-      await dependencyAnalyzer.getResourceDependencies('CustomResource', 'test.resource.io', 'default');
+      const testNamespace2 = process.env.VITE_TEST_NAMESPACE || 'test-ns';
+      await dependencyAnalyzer.getResourceDependencies('CustomResource', 'test.resource.io', testNamespace2);
 
       expect(mockedAxios.get).toHaveBeenCalledWith(
-        'http://localhost:3001/api/dependencies/CustomResource/test.resource.io?namespace=default',
+        `http://localhost:3001/api/dependencies/CustomResource/test.resource.io?namespace=${testNamespace2}`,
         { timeout: 30000 }
       );
     });
   });
 
   describe('getDependencyGraph', () => {
+    const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
     const mockGraph: DependencyGraph = {
       metadata: {
-        namespace: 'default',
+        namespace: testNamespace,
         nodeCount: 3,
         edgeCount: 2,
         timestamp: '2023-01-01T00:00:00Z'
       },
       nodes: [
         {
-          id: 'Pod/test-pod@default',
+          id: `Pod/test-pod@${testNamespace}`,
           kind: 'Pod',
           name: 'test-pod',
-          namespace: 'default',
+          namespace: testNamespace,
           labels: { app: 'test' },
           creationTimestamp: '2023-01-01T00:00:00Z',
           status: {}
         },
         {
-          id: 'Service/test-service@default',
+          id: `Service/test-service@${testNamespace}`,
           kind: 'Service',
           name: 'test-service',
-          namespace: 'default',
+          namespace: testNamespace,
           labels: {},
           creationTimestamp: '2023-01-01T00:00:00Z',
           status: {}
@@ -103,9 +106,9 @@ describe('ResourceDependencyAnalyzer', () => {
       ],
       edges: [
         {
-          id: 'Pod/test-pod@default-Service/test-service@default',
-          source: 'Pod/test-pod@default',
-          target: 'Service/test-service@default',
+          id: `Pod/test-pod@${testNamespace}-Service/test-service@${testNamespace}`,
+          source: `Pod/test-pod@${testNamespace}`,
+          target: `Service/test-service@${testNamespace}`,
           type: 'service',
           strength: 'weak',
           metadata: { reason: 'Service selects pod' }
@@ -128,8 +131,9 @@ describe('ResourceDependencyAnalyzer', () => {
     it('should handle filters correctly', async () => {
       mockedAxios.get.mockResolvedValueOnce({ data: mockGraph });
 
+      const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
       const filters: DependencyFilters = {
-        namespace: 'default',
+        namespace: testNamespace,
         includeCustomResources: false,
         maxNodes: 50
       };
@@ -137,7 +141,7 @@ describe('ResourceDependencyAnalyzer', () => {
       await dependencyAnalyzer.getDependencyGraph(filters);
 
       expect(mockedAxios.get).toHaveBeenCalledWith(
-        'http://localhost:3001/api/dependencies/graph?namespace=default&includeCustom=false&maxNodes=50',
+        `http://localhost:3001/api/dependencies/graph?namespace=${testNamespace}&includeCustom=false&maxNodes=50`,
         { timeout: 30000 }
       );
     });
@@ -154,8 +158,9 @@ describe('ResourceDependencyAnalyzer', () => {
   describe('helper methods', () => {
     describe('generateResourceId', () => {
       it('should generate correct IDs for namespaced resources', () => {
-        const id = dependencyAnalyzer.generateResourceId('Pod', 'test-pod', 'default');
-        expect(id).toBe('Pod/test-pod@default');
+        const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
+        const id = dependencyAnalyzer.generateResourceId('Pod', 'test-pod', testNamespace);
+        expect(id).toBe(`Pod/test-pod@${testNamespace}`);
       });
 
       it('should generate correct IDs for cluster-scoped resources', () => {
@@ -166,11 +171,12 @@ describe('ResourceDependencyAnalyzer', () => {
 
     describe('parseResourceId', () => {
       it('should parse namespaced resource IDs correctly', () => {
-        const parsed = dependencyAnalyzer.parseResourceId('Pod/test-pod@default');
+        const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
+        const parsed = dependencyAnalyzer.parseResourceId(`Pod/test-pod@${testNamespace}`);
         expect(parsed).toEqual({
           kind: 'Pod',
           name: 'test-pod',
-          namespace: 'default'
+          namespace: testNamespace
         });
       });
 
@@ -253,17 +259,19 @@ describe('ResourceDependencyAnalyzer', () => {
   });
 
   describe('getGraphStatistics', () => {
+    const testNamespace = process.env.VITE_TEST_NAMESPACE || 'test-ns';
+    const testGraphNamespace = process.env.VITE_TEST_GRAPH_NAMESPACE || 'test-graph-ns';
     const mockGraph: DependencyGraph = {
       metadata: {
-        namespace: 'test',
+        namespace: testGraphNamespace,
         nodeCount: 4,
         edgeCount: 3,
         timestamp: '2023-01-01T00:00:00Z'
       },
       nodes: [
-        { id: '1', kind: 'Pod', name: 'pod1', namespace: 'default', labels: {}, status: {} },
-        { id: '2', kind: 'Pod', name: 'pod2', namespace: 'default', labels: {}, status: {} },
-        { id: '3', kind: 'Service', name: 'svc1', namespace: 'default', labels: {}, status: {} },
+        { id: '1', kind: 'Pod', name: 'pod1', namespace: testNamespace, labels: {}, status: {} },
+        { id: '2', kind: 'Pod', name: 'pod2', namespace: testNamespace, labels: {}, status: {} },
+        { id: '3', kind: 'Service', name: 'svc1', namespace: testNamespace, labels: {}, status: {} },
         { id: '4', kind: 'Node', name: 'node1', labels: {}, status: {} }
       ],
       edges: [
@@ -280,7 +288,7 @@ describe('ResourceDependencyAnalyzer', () => {
       expect(stats.totalEdges).toBe(3);
       expect(stats.resourceTypes).toEqual(['Pod', 'Service', 'Node']);
       expect(stats.dependencyTypes).toEqual(['service', 'owner']);
-      expect(stats.namespaces).toEqual(['default']);
+      expect(stats.namespaces).toEqual([testNamespace]);
       expect(stats.strongDependencies).toBe(1);
       expect(stats.weakDependencies).toBe(2);
       expect(stats.nodesByType).toEqual({ Pod: 2, Service: 1, Node: 1 });

@@ -1,5 +1,5 @@
 import { kubernetesService } from './kubernetes-api';
-import * as k8s from '@kubernetes/client-node';
+import { V1ServiceAccount, V1Role, V1ClusterRole, V1RoleBinding, V1ClusterRoleBinding } from '../types';
 
 export interface RBACRule {
   apiGroups: string[];
@@ -62,19 +62,19 @@ export interface RBACAnalysis {
     permissions: string[];
     riskLevel: 'low' | 'medium' | 'high' | 'critical';
   }>;
-  orphanedRoles: Array<k8s.V1Role | k8s.V1ClusterRole>;
-  unusedServiceAccounts: k8s.V1ServiceAccount[];
-  overprivilegedBindings: Array<k8s.V1RoleBinding | k8s.V1ClusterRoleBinding>;
+  orphanedRoles: Array<V1Role | V1ClusterRole>;
+  unusedServiceAccounts: V1ServiceAccount[];
+  overprivilegedBindings: Array<V1RoleBinding | V1ClusterRoleBinding>;
 }
 
 export class RBACService {
   // Service Accounts
-  async getServiceAccounts(namespace?: string): Promise<k8s.V1ServiceAccount[]> {
+  async getServiceAccounts(namespace?: string): Promise<V1ServiceAccount[]> {
     return await kubernetesService.getServiceAccounts(namespace);
   }
 
-  async createServiceAccount(request: ServiceAccountCreationRequest): Promise<k8s.V1ServiceAccount> {
-    const serviceAccount: k8s.V1ServiceAccount = {
+  async createServiceAccount(request: ServiceAccountCreationRequest): Promise<V1ServiceAccount> {
+    const serviceAccount: V1ServiceAccount = {
       apiVersion: 'v1',
       kind: 'ServiceAccount',
       metadata: {
@@ -127,15 +127,15 @@ export class RBACService {
   }
 
   // Roles
-  async getRoles(namespace?: string): Promise<k8s.V1Role[]> {
+  async getRoles(namespace?: string): Promise<V1Role[]> {
     return await kubernetesService.getRoles(namespace);
   }
 
-  async getClusterRoles(): Promise<k8s.V1ClusterRole[]> {
+  async getClusterRoles(): Promise<V1ClusterRole[]> {
     return await kubernetesService.getClusterRoles();
   }
 
-  async createRole(request: RoleCreationRequest): Promise<k8s.V1Role | k8s.V1ClusterRole> {
+  async createRole(request: RoleCreationRequest): Promise<V1Role | V1ClusterRole> {
     const roleSpec = {
       apiVersion: 'rbac.authorization.k8s.io/v1',
       metadata: {
@@ -149,7 +149,7 @@ export class RBACService {
 
     if (request.namespace) {
       // Creating a namespaced Role
-      const role: k8s.V1Role = {
+      const role: V1Role = {
         ...roleSpec,
         kind: 'Role',
       };
@@ -158,7 +158,7 @@ export class RBACService {
       return result;
     } else {
       // Creating a ClusterRole
-      const clusterRole: k8s.V1ClusterRole = {
+      const clusterRole: V1ClusterRole = {
         ...roleSpec,
         kind: 'ClusterRole',
       };
@@ -172,7 +172,7 @@ export class RBACService {
     name: string,
     namespace: string | undefined,
     rules: RBACRule[]
-  ): Promise<k8s.V1Role | k8s.V1ClusterRole> {
+  ): Promise<V1Role | V1ClusterRole> {
     console.log(`Updating ${namespace ? 'role' : 'cluster role'}: ${namespace ? namespace + '/' : ''}${name}`);
     
     // First get the existing role

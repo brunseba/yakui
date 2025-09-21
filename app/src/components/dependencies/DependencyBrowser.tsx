@@ -24,6 +24,7 @@ import {
 } from '@mui/icons-material';
 import ResourceDependencyGraph from './ResourceDependencyGraph';
 import { DependencyFilters, DependencyGraphNode, DependencyGraphEdge } from '../../services/dependency-analyzer';
+import { kubernetesService } from '../../services/kubernetes';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -54,8 +55,30 @@ const DependencyBrowser: React.FC = () => {
   const [maxNodes, setMaxNodes] = useState(100);
   const [focusedResource, setFocusedResource] = useState<string>('');
 
-  // Available namespaces - in a real implementation, this would be fetched
-  const namespaces = ['default', 'kube-system', 'kube-public', 'kube-node-lease'];
+  // Available namespaces - fetched dynamically from cluster
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [loadingNamespaces, setLoadingNamespaces] = useState(true);
+
+  // Fetch available namespaces on component mount
+  React.useEffect(() => {
+    const fetchNamespaces = async () => {
+      try {
+        setLoadingNamespaces(true);
+        // Fetch namespaces from actual Kubernetes cluster
+        const namespacesData = await kubernetesService.getNamespaces();
+        const namespaceNames = namespacesData.map(ns => ns.metadata?.name).filter(Boolean);
+        setNamespaces(namespaceNames);
+      } catch (error) {
+        console.error('Failed to fetch namespaces from cluster:', error);
+        // Don't fall back to hardcoded namespaces - show empty list
+        setNamespaces([]);
+      } finally {
+        setLoadingNamespaces(false);
+      }
+    };
+
+    fetchNamespaces();
+  }, []);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -107,9 +130,10 @@ const DependencyBrowser: React.FC = () => {
                 value={selectedNamespace}
                 label="Namespace"
                 onChange={(e) => setSelectedNamespace(e.target.value)}
+                disabled={loadingNamespaces}
               >
                 <MenuItem value="">
-                  <em>All Namespaces</em>
+                  <em>{loadingNamespaces ? 'Loading namespaces...' : namespaces.length === 0 ? 'No namespaces available' : 'All Namespaces'}</em>
                 </MenuItem>
                 {namespaces.map(ns => (
                   <MenuItem key={ns} value={ns}>{ns}</MenuItem>

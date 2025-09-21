@@ -153,12 +153,32 @@ const initializeK8sApis = async () => {
 const testConnection = async () => {
   try {
     log('Testing cluster connection...');
+    log('Using cluster server:', kc.getCurrentCluster()?.server);
+    log('Using context:', kc.getCurrentContext());
+    
+    // Try a simple API call first
     const response = await coreV1Api.getAPIResources();
     log('Cluster connection test successful');
     return true;
   } catch (error) {
     log('ERROR: Cluster connection test failed:', error.message);
-    return false;
+    log('ERROR: Full error details:', {
+      code: error.code,
+      response: error.response?.status,
+      data: error.response?.data
+    });
+    
+    // Try alternative connection test
+    try {
+      log('Attempting alternative connection test...');
+      const versionApi = kc.makeApiClient(k8s.VersionApi);
+      const versionResponse = await versionApi.getCode();
+      log('Alternative connection test successful via version API');
+      return true;
+    } catch (altError) {
+      log('ERROR: Alternative connection test also failed:', altError.message);
+      return false;
+    }
   }
 };
 
@@ -215,11 +235,22 @@ app.post('/api/auth/login', async (req, res) => {
   log('Login request received');
   
   try {
-    // Test the connection
+    // Test the connection with detailed logging
+    log('Starting connection test...');
     const connectionOk = await testConnection();
     if (!connectionOk) {
-      return res.status(500).json({ error: 'Failed to connect to Kubernetes cluster' });
+      const errorMessage = 'Failed to connect to Kubernetes cluster. Check if the cluster is running and accessible.';
+      log('ERROR: Connection test failed, returning error to client');
+      return res.status(500).json({ 
+        error: errorMessage,
+        details: {
+          cluster: kc.getCurrentCluster()?.server,
+          context: kc.getCurrentContext(),
+          suggestion: 'Verify kubectl connectivity with: kubectl cluster-info'
+        }
+      });
     }
+    log('Connection test passed, proceeding with cluster info retrieval...');
     
     // Get cluster info with detailed logging
     log('Fetching cluster version...');
@@ -1410,6 +1441,54 @@ app.post('/api/helm/releases/:namespace/:name/rollback', async (req, res) => {
 
 // === RESOURCE DEPENDENCY ENDPOINTS ===
 
+// Cache for workloads to avoid repeated API calls
+const workloadCache = new Map();
+const clearWorkloadCache = () => {
+  workloadCache.clear();
+};
+
+// Helper function to get workloads for a namespace (cached)
+const getNamespaceWorkloads = async (namespace) => {
+  const cacheKey = namespace || 'cluster';
+  
+  if (workloadCache.has(cacheKey)) {
+    return workloadCache.get(cacheKey);
+  }
+  
+  try {
+    log(`Fetching workloads for namespace: ${namespace || 'all'}`);
+    
+    const [pods, deployments, statefulSets, daemonSets] = await Promise.all([
+      namespace 
+        ? coreV1Api.listNamespacedPod({ namespace })
+        : coreV1Api.listPodForAllNamespaces(),
+      namespace 
+        ? appsV1Api.listNamespacedDeployment({ namespace })
+        : appsV1Api.listDeploymentForAllNamespaces(),
+      namespace 
+        ? appsV1Api.listNamespacedStatefulSet({ namespace })
+        : appsV1Api.listStatefulSetForAllNamespaces(),
+      namespace 
+        ? appsV1Api.listNamespacedDaemonSet({ namespace })
+        : appsV1Api.listDaemonSetForAllNamespaces()
+    ]);
+    
+    const workloads = [
+      ...(pods.items || []).map(pod => ({ ...pod, kind: 'Pod' })),
+      ...(deployments.items || []).map(deployment => ({ ...deployment, kind: 'Deployment' })),
+      ...(statefulSets.items || []).map(statefulSet => ({ ...statefulSet, kind: 'StatefulSet' })),
+      ...(daemonSets.items || []).map(daemonSet => ({ ...daemonSet, kind: 'DaemonSet' }))
+    ];
+    
+    log(`Cached ${workloads.length} workloads for namespace: ${namespace || 'all'}`);
+    workloadCache.set(cacheKey, workloads);
+    return workloads;
+  } catch (error) {
+    log(`Warning: Failed to fetch workloads for namespace ${namespace}:`, error.message);
+    return [];
+  }
+};
+
 // Helper function to analyze resource dependencies
 const analyzeResourceDependencies = async (resource, allResources = null) => {
   const dependencies = {
@@ -1704,33 +1783,19 @@ const analyzeResourceDependencies = async (resource, allResources = null) => {
       }
     }
 
-    // 12. Reverse dependency analysis for ConfigMaps, Secrets, and ServiceAccounts
-    if (resource.kind === 'ConfigMap' || resource.kind === 'Secret' || resource.kind === 'ServiceAccount') {
+    // 12. DISABLED: Reverse dependency analysis (performance optimization)
+    // This was causing exponential performance issues with nested loops
+    // Forward dependencies (resources this resource depends on) are still analyzed above
+    // Reverse dependencies can be calculated more efficiently in the graph generation phase
+    if (false && (resource.kind === 'ConfigMap' || resource.kind === 'Secret' || resource.kind === 'ServiceAccount')) {
       try {
-        // Find Pods that reference this ConfigMap/Secret
-        const pods = await coreV1Api.listNamespacedPod({ namespace: resource.metadata.namespace });
-        const podItems = pods.items || [];
+        // Use cached workloads to avoid repeated API calls
+        const allWorkloads = await getNamespaceWorkloads(resource.metadata.namespace);
         
-        // Find Deployments that reference this ConfigMap/Secret
-        const deployments = await appsV1Api.listNamespacedDeployment({ namespace: resource.metadata.namespace });
-        const deploymentItems = deployments.items || [];
+        // Limit workloads analyzed to prevent infinite loops
+        const MAX_WORKLOADS_TO_ANALYZE = 20; // Reduced limit
         
-        // Find StatefulSets that reference this ConfigMap/Secret
-        const statefulSets = await appsV1Api.listNamespacedStatefulSet({ namespace: resource.metadata.namespace });
-        const statefulSetItems = statefulSets.items || [];
-        
-        // Find DaemonSets that reference this ConfigMap/Secret
-        const daemonSets = await appsV1Api.listNamespacedDaemonSet({ namespace: resource.metadata.namespace });
-        const daemonSetItems = daemonSets.items || [];
-        
-        const allWorkloads = [
-          ...podItems.map(pod => ({ ...pod, kind: 'Pod' })),
-          ...deploymentItems.map(deployment => ({ ...deployment, kind: 'Deployment' })),
-          ...statefulSetItems.map(statefulSet => ({ ...statefulSet, kind: 'StatefulSet' })),
-          ...daemonSetItems.map(daemonSet => ({ ...daemonSet, kind: 'DaemonSet' }))
-        ];
-        
-        for (const workload of allWorkloads) {
+        for (const workload of workloadsToAnalyze) {
           const workloadId = `${workload.kind}/${workload.metadata.name}@${workload.metadata.namespace}`;
           const podSpec = workload.kind === 'Pod' ? workload.spec : workload.spec?.template?.spec;
           
@@ -2834,14 +2899,22 @@ const analyzeCRDSchemas = async () => {
 app.get('/api/dependencies/graph', async (req, res) => {
   const namespace = req.query.namespace;
   const includeCustomResources = req.query.includeCustom === 'true';
-  const maxNodes = parseInt(req.query.maxNodes) || MAX_RESOURCES_PER_TYPE;
+  const maxNodes = parseInt(req.query.maxNodes) || Math.min(MAX_RESOURCES_PER_TYPE, 50); // Limit for performance
   log(`Dependency graph request for ${namespace ? `namespace: ${namespace}` : 'entire cluster'} (maxNodes: ${maxNodes})`);
 
+  // Clear workload cache at the start of each request to ensure fresh data
+  clearWorkloadCache();
+  
   try {
     const nodes = [];
     const edges = [];
     const resourceMap = new Map();
     const edgeMap = new Map(); // Track edges to prevent duplicates
+    
+    // Performance tracking
+    const startTime = Date.now();
+    let resourcesProcessed = 0;
+    const MAX_PROCESSING_TIME = 25000; // 25 seconds max processing time
     
     // Helper function to add an edge safely (avoiding duplicates)
     const addEdge = (edgeId, source, target, type, strength, metadata) => {
@@ -2910,6 +2983,13 @@ app.get('/api/dependencies/graph', async (req, res) => {
         
     // Add nodes and analyze dependencies
         for (const resource of resources.slice(0, maxNodes)) { // Configurable limit for performance
+          // Check time and resource limits to prevent infinite loops/heavy processing
+          if (Date.now() - startTime > MAX_PROCESSING_TIME) {
+            log('Performance limit reached: stopping resource processing early');
+            break;
+          }
+          resourcesProcessed++;
+          
           // Ensure resource has kind property set
           if (!resource.kind) {
             resource.kind = resourceType.kind;
@@ -3047,6 +3127,40 @@ app.get('/api/dependencies/graph', async (req, res) => {
     // Clean up selector placeholder edges
     const filteredEdges = edges.filter(edge => edge.target !== '*selector-match*');
     
+    // Add efficient reverse dependency relationships
+    // This calculates incoming dependencies by inverting the existing outgoing edges
+    const reverseEdgeMap = new Map();
+    filteredEdges.forEach(edge => {
+      // For each outgoing dependency A -> B, create reverse dependency B <- A
+      if (edge.type === 'configMap' || edge.type === 'secret' || edge.type === 'environment' || edge.type === 'serviceAccount') {
+        const reverseEdgeId = `${edge.target}<--${edge.source}`;
+        if (!edgeMap.has(reverseEdgeId)) {
+          const reverseEdge = {
+            id: reverseEdgeId,
+            source: edge.target,
+            target: edge.source,
+            type: edge.type,
+            strength: edge.strength,
+            metadata: {
+              ...edge.metadata,
+              reason: `Provides ${edge.type} to ${edge.source}`,
+              reverse: true
+            }
+          };
+          reverseEdgeMap.set(reverseEdgeId, reverseEdge);
+        }
+      }
+    });
+    
+    // Add reverse edges to the main edge list (but limit to prevent explosion)
+    const MAX_REVERSE_EDGES = 50;
+    const reverseEdges = Array.from(reverseEdgeMap.values()).slice(0, MAX_REVERSE_EDGES);
+    filteredEdges.push(...reverseEdges);
+    
+    // Calculate final performance metrics
+    const endTime = Date.now();
+    const processingTime = endTime - startTime;
+    
     const response = {
       metadata: {
         namespace: namespace || 'cluster',
@@ -3056,13 +3170,22 @@ app.get('/api/dependencies/graph', async (req, res) => {
         serviceToPodMappings: servicesToPods.size,
         configMapDependencies: configMapToPods.size,
         secretDependencies: secretToPods.size,
-        serviceAccountDependencies: serviceAccountToPods.size
+        serviceAccountDependencies: serviceAccountToPods.size,
+        performance: {
+          processingTimeMs: processingTime,
+          resourcesProcessed: resourcesProcessed,
+          cacheHits: workloadCache.size
+        }
       },
       nodes,
       edges: filteredEdges
     };
     
-    log(`Generated dependency graph: ${nodes.length} nodes, ${filteredEdges.length} edges (${servicesToPods.size} Service->Pod mappings, ${serviceAccountToPods.size} ServiceAccount dependencies)`);
+    log(`Generated dependency graph: ${nodes.length} nodes, ${filteredEdges.length} edges (${servicesToPods.size} Service->Pod mappings, ${serviceAccountToPods.size} ServiceAccount dependencies) - Processing time: ${processingTime}ms, Resources processed: ${resourcesProcessed}`);
+    
+    // Clear cache after each request to prevent memory leaks
+    clearWorkloadCache();
+    
     res.json(response);
   } catch (error) {
     log(`ERROR: Failed to generate dependency graph:`, error.message);

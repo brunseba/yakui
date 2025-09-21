@@ -19,7 +19,7 @@ import ResourceManager from './components/resources/ResourceManager';
 import CRDManager from './components/crds/CRDManager';
 import CRDDetail from './components/crds/CRDDetail';
 import DependencyBrowser from './components/dependencies/DependencyBrowser';
-import CRDDependencyBrowser from './components/dependencies/CRDDependencyBrowser';
+import CRDAnalysis from './components/crd/CRDAnalysis';
 import RBACManager from './components/rbac/RBACManager';
 import ComprehensiveRBACManager from './components/rbac/ComprehensiveRBACManager';
 import RBACDemo from './components/rbac/RBACDemo';
@@ -29,6 +29,8 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import FeatureStatus from './components/common/FeatureStatus';
 import ComingSoon from './components/common/ComingSoon';
 import DevTest from './components/DevTest';
+import CRDGraphTest from './components/crd/CRDGraphTest';
+import SimpleCRDGraphTest from './components/crd/SimpleCRDGraphTest';
 
 // Helper component for CRD detail redirect
 const CRDDetailRedirect: React.FC = () => {
@@ -112,8 +114,9 @@ const AppRoutes: React.FC = () => {
         <Route path="/crds/:name" element={<CRDDetailRedirect />} />
         <Route path="/workloads/crds/:name" element={<CRDDetailRedirect />} />
         
-        {/* Dictionary routes */}
-        <Route path="/dictionary/dependencies" element={<CRDDependencyBrowser />} />
+        
+        {/* CRD Analysis routes */}
+        <Route path="/crd-analysis" element={<CRDAnalysis />} />
         
         {/* Dependency routes */}
         <Route path="/workloads/dependencies" element={<DependencyBrowser />} />
@@ -178,6 +181,8 @@ const App: React.FC = () => {
                 <ErrorBoundary>
                   <Routes>
                     <Route path="/dev-test" element={<DevTest />} />
+                    <Route path="/crd-graph-test" element={<CRDGraphTest />} />
+                    <Route path="/simple-crd-test" element={<SimpleCRDGraphTest />} />
                     <Route path="/login" element={<Login />} />
                     <Route 
                       path="/*" 

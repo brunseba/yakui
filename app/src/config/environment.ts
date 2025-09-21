@@ -32,65 +32,70 @@ export interface AppConfig {
 
 const defaultConfig: AppConfig = {
   api: {
-    baseUrl: 'http://localhost:3001/api',
-    timeout: 30000,
-    retries: 3,
+    baseUrl: import.meta.env.VITE_API_BASE_URL || '/api',
+    timeout: parseInt(import.meta.env.VITE_API_TIMEOUT || '30000'),
+    retries: parseInt(import.meta.env.VITE_API_RETRIES || '3'),
   },
   cluster: {
-    defaultContext: 'kind-krateo-quickstart',
-    serverMaskPattern: '****',
-    connectionTimeout: 10000,
+    defaultContext: import.meta.env.VITE_CLUSTER_CONTEXT || 'default',
+    serverMaskPattern: import.meta.env.VITE_SERVER_MASK_PATTERN || '****',
+    connectionTimeout: parseInt(import.meta.env.VITE_CONNECTION_TIMEOUT || '10000'),
   },
   ui: {
-    refreshInterval: 30000,
-    maxLogLines: 1000,
-    defaultPageSize: 20,
+    refreshInterval: parseInt(import.meta.env.VITE_REFRESH_INTERVAL || '30000'),
+    maxLogLines: parseInt(import.meta.env.VITE_MAX_LOG_LINES || '1000'),
+    defaultPageSize: parseInt(import.meta.env.VITE_DEFAULT_PAGE_SIZE || '20'),
   },
   security: {
-    enableServerMasking: true,
-    logSensitiveData: false,
+    enableServerMasking: import.meta.env.VITE_ENABLE_SERVER_MASKING === 'true',
+    logSensitiveData: import.meta.env.VITE_LOG_SENSITIVE_DATA === 'true',
   },
   features: {
-    enableStubFeatures: true,
-    enableMetrics: false,
-    enableLogs: true,
+    enableStubFeatures: import.meta.env.VITE_ENABLE_STUB_FEATURES === 'true',
+    enableMetrics: import.meta.env.VITE_ENABLE_METRICS === 'true',
+    enableLogs: import.meta.env.VITE_ENABLE_LOGS !== 'false', // Default to true
   },
 };
 
 const developmentConfig: Partial<AppConfig> = {
+  api: {
+    baseUrl: import.meta.env.VITE_DEV_API_BASE_URL || 'http://localhost:3001/api',
+    timeout: parseInt(import.meta.env.VITE_DEV_API_TIMEOUT || '30000'),
+    retries: parseInt(import.meta.env.VITE_DEV_API_RETRIES || '3'),
+  },
   security: {
-    enableServerMasking: false,
-    logSensitiveData: true,
+    enableServerMasking: import.meta.env.VITE_DEV_ENABLE_SERVER_MASKING === 'true',
+    logSensitiveData: import.meta.env.VITE_DEV_LOG_SENSITIVE_DATA === 'true',
   },
   features: {
-    enableStubFeatures: true,
-    enableMetrics: true,
-    enableLogs: true,
+    enableStubFeatures: import.meta.env.VITE_DEV_ENABLE_STUB_FEATURES !== 'false', // Default to true in dev
+    enableMetrics: import.meta.env.VITE_DEV_ENABLE_METRICS === 'true',
+    enableLogs: import.meta.env.VITE_DEV_ENABLE_LOGS !== 'false', // Default to true in dev
   },
 };
 
 const productionConfig: Partial<AppConfig> = {
   security: {
-    enableServerMasking: true,
-    logSensitiveData: false,
+    enableServerMasking: import.meta.env.VITE_PROD_ENABLE_SERVER_MASKING !== 'false', // Default to true in prod
+    logSensitiveData: import.meta.env.VITE_PROD_LOG_SENSITIVE_DATA === 'true', // Default to false in prod
   },
   features: {
-    enableStubFeatures: false,
-    enableMetrics: true,
-    enableLogs: true,
+    enableStubFeatures: import.meta.env.VITE_PROD_ENABLE_STUB_FEATURES === 'true', // Default to false in prod
+    enableMetrics: import.meta.env.VITE_PROD_ENABLE_METRICS !== 'false', // Default to true in prod
+    enableLogs: import.meta.env.VITE_PROD_ENABLE_LOGS !== 'false', // Default to true in prod
   },
 };
 
 const testConfig: Partial<AppConfig> = {
   api: {
-    baseUrl: 'http://localhost:3002/api',
-    timeout: 5000,
-    retries: 1,
+    baseUrl: import.meta.env.VITE_TEST_API_BASE_URL || 'http://localhost:3002/api',
+    timeout: parseInt(import.meta.env.VITE_TEST_API_TIMEOUT || '5000'),
+    retries: parseInt(import.meta.env.VITE_TEST_API_RETRIES || '1'),
   },
   features: {
-    enableStubFeatures: true,
-    enableMetrics: false,
-    enableLogs: false,
+    enableStubFeatures: import.meta.env.VITE_TEST_ENABLE_STUB_FEATURES !== 'false', // Default to true in test
+    enableMetrics: import.meta.env.VITE_TEST_ENABLE_METRICS === 'true', // Default to false in test
+    enableLogs: import.meta.env.VITE_TEST_ENABLE_LOGS === 'true', // Default to false in test
   },
 };
 
