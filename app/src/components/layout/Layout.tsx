@@ -55,6 +55,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeMode } from '../../contexts/ThemeContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { ClusterSelector } from '../cluster';
 
 const drawerWidth = 280;
 
@@ -96,6 +97,18 @@ const navigationItems: NavigationItem[] = [
         label: 'Topology',
         icon: <VisibilityIcon />,
         path: '/cluster/topology'
+      },
+      {
+        id: 'management',
+        label: 'Cluster Management',
+        icon: <SettingsIcon />,
+        path: '/cluster/management'
+      },
+      {
+        id: 'health',
+        label: 'Health Monitor',
+        icon: <MonitorIcon />,
+        path: '/cluster/health'
       }
     ]
   },
@@ -430,22 +443,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </Toolbar>
       <Divider />
       
-      {authState.cluster && (
-        <Box p={2}>
-          <Typography variant="subtitle2" color="textSecondary">
-            Cluster
-          </Typography>
-          <Chip 
-            label={authState.cluster.name} 
-            size="small" 
-            variant="outlined" 
-            sx={{ mt: 1 }}
-          />
-          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-            {authState.cluster.nodes} nodes • {authState.cluster.namespaces} namespaces
-          </Typography>
-        </Box>
-      )}
+      <Box p={2}>
+        <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+          Current Cluster
+        </Typography>
+        <ClusterSelector 
+          variant="sidebar" 
+          onManageClusters={() => navigate('/cluster/management')}
+          onAddCluster={() => navigate('/cluster/management')}
+        />
+      </Box>
       
       <Divider />
       <List>
@@ -507,7 +514,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             Kubernetes Admin Dashboard
           </Typography>
           
-          <Box display="flex" alignItems="center" gap={1}>
+          <Box display="flex" alignItems="center" gap={2}>
+            {/* Cluster Selector */}
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <ClusterSelector 
+                variant="compact" 
+                onManageClusters={() => navigate('/cluster/management')}
+                onAddCluster={() => navigate('/cluster/management')}
+              />
+            </Box>
+            
             {/* Dark mode toggle */}
             <IconButton
               color="inherit"

@@ -38,9 +38,13 @@ class KubernetesApiService {
     }
   }
 
-  async authenticate(token?: string): Promise<AuthState> {
+  async authenticate(token?: string, kubeconfig?: string, server?: string): Promise<AuthState> {
     console.log('[K8s API] Authenticating with real cluster...');
-    console.log('[K8s API] Token provided:', token ? 'Yes' : 'No');
+    console.log('[K8s API] Auth details:', {
+      hasToken: !!token,
+      hasKubeconfig: !!kubeconfig,
+      hasServer: !!server
+    });
     
     if (!this.isInitialized) {
       console.error('[K8s API] Service not initialized!');
@@ -50,12 +54,33 @@ class KubernetesApiService {
     try {
       const result = await safeApiCall(
         async () => {
+          // Prepare request body based on available authentication data
+          const requestBody: any = {};
+          
+          if (token) {
+            requestBody.token = token;
+          }
+          
+          if (kubeconfig) {
+            requestBody.kubeconfig = kubeconfig;
+          }
+          
+          if (server) {
+            requestBody.server = server;
+          }
+          
+          console.log('[K8s API] Sending auth request with:', {
+            hasToken: !!requestBody.token,
+            hasKubeconfig: !!requestBody.kubeconfig,
+            hasServer: !!requestBody.server
+          });
+          
           const response = await fetch(`${this.apiBaseUrl}/auth/login`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ token }),
+            body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(config.api.timeout)
           });
 

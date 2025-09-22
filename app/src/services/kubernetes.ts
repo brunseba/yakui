@@ -3,18 +3,49 @@
 import { kubernetesService as apiService } from './kubernetes-api';
 import { AuthState, ClusterNode, NamespaceWithMetrics, CRDWithInstances, ClusterEvent, ResourceMetrics } from '../types';
 import { V1Namespace, V1ServiceAccount } from '../types';
+import { ClusterConnection } from '../types/cluster';
 
 class KubernetesService {
   private isInitialized = false;
+  private currentCluster: ClusterConnection | null = null;
 
   constructor() {
     console.log('[K8s Service] Browser-safe wrapper service initialized');
+    
+    // Listen for cluster switch events
+    if (typeof window !== 'undefined') {
+      window.addEventListener('clusterSwitch', this.handleClusterSwitch.bind(this));
+    }
+  }
+
+  private handleClusterSwitch(event: CustomEvent<any>) {
+    const { to } = event.detail;
+    console.log('[K8s Service] Cluster switched to:', to.config.displayName || to.config.name);
+    this.currentCluster = to;
+    // Reset initialization to force reconnection with new cluster
+    this.isInitialized = false;
+  }
+
+  setCurrentCluster(cluster: ClusterConnection | null) {
+    this.currentCluster = cluster;
+    this.isInitialized = false; // Force re-initialization with new cluster
+  }
+
+  getCurrentCluster(): ClusterConnection | null {
+    return this.currentCluster;
   }
 
   async initialize(config?: string): Promise<boolean> {
     console.log('[K8s Service] Delegating initialization to API service...');
+    
+    // Use current cluster configuration if available
+    let clusterConfig = config;
+    if (!clusterConfig && this.currentCluster) {
+      clusterConfig = this.getClusterConfig(this.currentCluster);
+    }
+    
     try {
-      const result = await apiService.initialize(config);
+      const result = await apiService.initialize(clusterConfig);
       this.isInitialized = result;
       return result;
     } catch (error) {
@@ -23,8 +54,44 @@ class KubernetesService {
     }
   }
 
+  private getClusterConfig(cluster: ClusterConnection): string {
+    // Convert cluster connection to config string based on auth type
+    switch (cluster.auth.type) {
+      case 'kubeconfig':
+        return cluster.auth.kubeconfig || '';
+      case 'token':
+        return JSON.stringify({
+          server: cluster.config.server,
+          token: cluster.auth.token,
+          namespace: cluster.auth.namespace
+        });
+      case 'certificate':
+        return JSON.stringify({
+          server: cluster.config.server,
+          certificate: cluster.auth.certificate,
+          namespace: cluster.auth.namespace
+        });
+      case 'serviceaccount':
+        return JSON.stringify({
+          server: cluster.config.server,
+          serviceAccount: cluster.auth.serviceAccount,
+          namespace: cluster.auth.namespace
+        });
+      default:
+        return '';
+    }
+  }
+
+  private ensureClusterContext(): void {
+    if (!this.currentCluster) {
+      console.warn('[K8s Service] No cluster context available. Operations may fail.');
+      // Don't throw error to maintain backward compatibility
+    }
+  }
+
   async authenticate(token?: string): Promise<AuthState> {
     console.log('[K8s Service] Delegating authentication to API service...');
+    this.ensureClusterContext();
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -33,6 +100,7 @@ class KubernetesService {
 
   async getNodes(): Promise<ClusterNode[]> {
     console.log('[K8s Service] Delegating getNodes to API service...');
+    this.ensureClusterContext();
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -41,6 +109,7 @@ class KubernetesService {
 
   async getNamespaces(): Promise<NamespaceWithMetrics[]> {
     console.log('[K8s Service] Delegating getNamespaces to API service...');
+    this.ensureClusterContext();
     if (!this.isInitialized) {
       await this.initialize();
     }

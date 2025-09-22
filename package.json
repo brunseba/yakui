@@ -20,7 +20,11 @@
     "status": "curl -s http://localhost:3001/api/health && echo && curl -s http://localhost:3001/api/version",
     "validate:config": "ts-node -e \"const { validateConfig, config } = require('./app/src/config/environment.ts'); const errors = validateConfig(config); if (errors.length > 0) { console.error('Config errors:', errors); process.exit(1); } else { console.log('✅ Configuration valid'); }\"",
     "diagnostics": "node -e \"const { generateDiagnosticsReport } = require('./app/src/utils/systemValidation.ts'); generateDiagnosticsReport().then(report => console.log(report));\"",
-    "kill:dev": "pkill -f 'dev-server.cjs' && pkill -f 'vite'"
+    "kill:dev": "pkill -f 'dev-server.cjs' && pkill -f 'vite'",
+    "k8s:proxy-server": "node tools/kubernetes-proxy-server.cjs",
+    "dev:with-proxy": "concurrently \"npm run dev:api\" \"npm run k8s:proxy-server\" \"npm run dev\" --kill-others-on-fail --names \"api,k8s-proxy,app\"",
+    "k8s:proxy": "./scripts/start-k8s-proxy.sh",
+    "k8s:help": "echo 'Kubernetes development setup help:' && echo 'Services:' && echo '  - API Backend: http://localhost:3001' && echo '  - Kubernetes Proxy: http://localhost:3002' && echo '  - Frontend App: http://localhost:5173' && echo '' && echo 'Commands:' && echo '  npm run dev:with-proxy  - Start all services' && echo '  npm run dev:full        - Start API + App only' && echo '  npm run k8s:proxy-server - Start K8s proxy only'"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -62,6 +66,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "events": "^3.3.0",
     "globals": "^16.4.0",
+    "http-proxy-middleware": "^3.0.5",
     "https-browserify": "^1.0.0",
     "jsdom": "^27.0.0",
     "process": "^0.11.10",

@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { KubeconfigManager } = require('./kubeconfig-manager.cjs');
 let k8s; // Will be loaded dynamically
 
 const app = express();
@@ -60,8 +61,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize Kubernetes client
+// Initialize Kubernetes client and kubeconfig manager
 let kc, coreV1Api, appsV1Api, rbacV1Api, apiExtensionsV1Api, metricsV1Api, customObjectsApi;
+let kubeconfigManager;
+let currentApis = null;
 
 // Configurable logging
 const log = (message, data = '') => {
@@ -91,54 +94,46 @@ const logAlways = (message, data = '') => {
 };
 
 // Initialize Kubernetes APIs
-const initializeK8sApis = async () => {
+const initializeK8sApis = async (kubeconfigOptions = null) => {
   try {
     // Dynamic import of the ES module
     if (!k8s) {
       log('Loading Kubernetes client module...');
       k8s = await import('@kubernetes/client-node');
-      kc = new k8s.KubeConfig();
     }
     
-    log('Loading kubeconfig from default location...');
-    kc.loadFromDefault();
-    
-    const currentContext = kc.getCurrentContext();
-    const currentUser = kc.getCurrentUser();
-    const currentCluster = kc.getCurrentCluster();
-    
-    // If no explicit cluster context was set, use the current one from kubeconfig
-    if (!clusterContext) {
-      clusterContext = currentContext;
-      log('Using current kubectl context:', clusterContext);
-    } else {
-      log('Using explicit cluster context:', clusterContext);
-      // Validate that the specified context exists
-      const contexts = kc.getContexts();
-      const contextExists = contexts.some(ctx => ctx.name === clusterContext);
-      if (!contextExists) {
-        throw new Error(`Specified CLUSTER_CONTEXT '${clusterContext}' not found in kubeconfig. Available contexts: ${contexts.map(c => c.name).join(', ')}`);
-      }
-      // Switch to the specified context
-      kc.setCurrentContext(clusterContext);
+    // Initialize kubeconfig manager if not already done
+    if (!kubeconfigManager) {
+      kubeconfigManager = new KubeconfigManager();
+      await kubeconfigManager.initialize(k8s);
     }
     
-    log('Kubeconfig loaded successfully');
-    log('Active context:', clusterContext);
-    log('Current user:', currentUser?.name || 'unknown');
-    log('Current cluster server:', currentCluster?.server || 'unknown');
+    // Load kubeconfig based on provided options or use default
+    const options = kubeconfigOptions || { 
+      type: 'default',
+      context: clusterContext 
+    };
     
-    coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
-    appsV1Api = kc.makeApiClient(k8s.AppsV1Api);
-    rbacV1Api = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
-    apiExtensionsV1Api = kc.makeApiClient(k8s.ApiextensionsV1Api);
-    customObjectsApi = kc.makeApiClient(k8s.CustomObjectsApi);
+    log('Loading kubeconfig with options:', options.type);
+    const apis = await kubeconfigManager.loadKubeconfig(options);
     
-    try {
-      metricsV1Api = new k8s.Metrics(kc);
-      log('Metrics API initialized');
-    } catch (err) {
-      log('Warning: Metrics API not available:', err.message);
+    // Update global variables for backward compatibility
+    kc = apis.kc;
+    coreV1Api = apis.coreV1Api;
+    appsV1Api = apis.appsV1Api;
+    rbacV1Api = apis.rbacV1Api;
+    apiExtensionsV1Api = apis.apiExtensionsV1Api;
+    customObjectsApi = apis.customObjectsApi;
+    metricsV1Api = apis.metricsV1Api;
+    
+    // Store current APIs
+    currentApis = apis;
+    
+    const configInfo = kubeconfigManager.getCurrentConfigInfo();
+    if (configInfo) {
+      log('Active context:', configInfo.context);
+      log('Current user:', configInfo.user?.name || 'unknown');
+      log('Current cluster server:', configInfo.cluster?.server || 'unknown');
     }
     
     log('All Kubernetes APIs initialized successfully');
@@ -230,76 +225,292 @@ app.get('/api/version', async (req, res) => {
   }
 });
 
-// Initialize and authenticate
+// Switch active cluster context
+app.post('/api/cluster/switch', async (req, res) => {
+  log('Cluster switch request received');
+  
+  try {
+    const { clusterId, kubeconfig, token, server, context } = req.body;
+    log('Switch request details:', {
+      clusterId,
+      hasKubeconfig: !!kubeconfig,
+      hasToken: !!token,
+      hasServer: !!server,
+      context
+    });
+    
+    // Determine kubeconfig options based on request
+    let kubeconfigOptions;
+    
+    if (kubeconfig) {
+      log('🔧 Switching to custom kubeconfig');
+      kubeconfigOptions = {
+        type: 'custom',
+        content: kubeconfig,
+        context: context
+      };
+    } else if (token && server) {
+      log('🔑 Switching to token-based authentication');
+      kubeconfigOptions = {
+        type: 'token',
+        token: token,
+        server: server
+      };
+    } else if (context) {
+      log('🎯 Switching to specific context:', context);
+      kubeconfigOptions = {
+        type: 'default',
+        context: context
+      };
+    } else {
+      log('📂 Switching to default kubeconfig');
+      kubeconfigOptions = {
+        type: 'default',
+        context: clusterContext
+      };
+    }
+    
+    // Reinitialize with new kubeconfig
+    log('🔄 Switching cluster context in backend...');
+    const initSuccess = await initializeK8sApis(kubeconfigOptions);
+    if (!initSuccess) {
+      throw new Error('Failed to initialize Kubernetes APIs with cluster configuration');
+    }
+    
+    // Get cluster info for response
+    const configInfo = kubeconfigManager.getCurrentConfigInfo();
+    const clusterVersion = await kubeconfigManager.getClusterVersion(coreV1Api);
+    const nodesResponse = await coreV1Api.listNode();
+    const namespacesResponse = await coreV1Api.listNamespace();
+    
+    const switchResult = {
+      success: true,
+      clusterId: clusterId || configInfo?.context,
+      context: configInfo?.context,
+      server: configInfo?.cluster?.server,
+      user: configInfo?.user?.name,
+      version: clusterVersion.gitVersion,
+      nodes: nodesResponse.items?.length || 0,
+      namespaces: namespacesResponse.items?.length || 0,
+      timestamp: new Date().toISOString()
+    };
+    
+    log('✅ Cluster switch successful:', {
+      context: switchResult.context,
+      server: switchResult.server,
+      nodes: switchResult.nodes,
+      namespaces: switchResult.namespaces
+    });
+    
+    res.json(switchResult);
+  } catch (error) {
+    log('❌ Cluster switch failed:', error.message);
+    res.status(500).json({ 
+      error: error.message,
+      clusterId: req.body.clusterId
+    });
+  }
+});
+
+// Test cluster connectivity without switching
+app.post('/api/cluster/test', async (req, res) => {
+  log('Cluster test request received');
+  
+  try {
+    const { kubeconfig, token, server, context } = req.body;
+    
+    // Create temporary kubeconfig manager for testing
+    const testManager = new KubeconfigManager();
+    await testManager.initialize(k8s);
+    
+    let kubeconfigOptions;
+    
+    if (kubeconfig) {
+      kubeconfigOptions = {
+        type: 'custom',
+        content: kubeconfig,
+        context: context
+      };
+    } else if (token && server) {
+      kubeconfigOptions = {
+        type: 'token',
+        token: token,
+        server: server
+      };
+    } else {
+      kubeconfigOptions = {
+        type: 'default',
+        context: context
+      };
+    }
+    
+    // Test connection without changing active context
+    const apis = await testManager.loadKubeconfig(kubeconfigOptions);
+    const configInfo = testManager.getCurrentConfigInfo();
+    const version = await testManager.getClusterVersion(apis.coreV1Api);
+    
+    const testResult = {
+      success: true,
+      context: configInfo?.context,
+      server: configInfo?.cluster?.server,
+      user: configInfo?.user?.name,
+      version: version.gitVersion,
+      timestamp: new Date().toISOString()
+    };
+    
+    log('✅ Cluster test successful:', testResult);
+    res.json(testResult);
+  } catch (error) {
+    log('❌ Cluster test failed:', error.message);
+    res.status(500).json({ 
+      error: error.message,
+      details: 'Connection test failed'
+    });
+  }
+});
+
+// Get current cluster info
+app.get('/api/cluster/current', async (req, res) => {
+  log('Current cluster info request received');
+  
+  try {
+    if (!kubeconfigManager) {
+      return res.status(503).json({ error: 'Cluster context not initialized' });
+    }
+    
+    const configInfo = kubeconfigManager.getCurrentConfigInfo();
+    const version = await kubeconfigManager.getClusterVersion(coreV1Api);
+    const nodesResponse = await coreV1Api.listNode();
+    const namespacesResponse = await coreV1Api.listNamespace();
+    
+    const clusterInfo = {
+      context: configInfo?.context,
+      server: configInfo?.cluster?.server,
+      user: configInfo?.user?.name,
+      version: version.gitVersion,
+      versionDetails: version,
+      nodes: nodesResponse.items?.length || 0,
+      namespaces: namespacesResponse.items?.length || 0,
+      availableContexts: configInfo?.contexts || [],
+      timestamp: new Date().toISOString()
+    };
+    
+    log('Current cluster info retrieved:', {
+      context: clusterInfo.context,
+      server: clusterInfo.server,
+      nodes: clusterInfo.nodes,
+      namespaces: clusterInfo.namespaces
+    });
+    
+    res.json(clusterInfo);
+  } catch (error) {
+    log('ERROR: Failed to get current cluster info:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Initialize and authenticate with dynamic kubeconfig support
 app.post('/api/auth/login', async (req, res) => {
   log('Login request received');
   
   try {
+    const { token, kubeconfig, context, server } = req.body;
+    log('Auth request details:', {
+      hasToken: !!token,
+      hasKubeconfig: !!kubeconfig,
+      hasContext: !!context,
+      hasServer: !!server
+    });
+    
+    // Determine kubeconfig options based on request
+    let kubeconfigOptions;
+    
+    if (kubeconfig) {
+      // Custom kubeconfig provided
+      log('🔧 Using custom kubeconfig from request');
+      kubeconfigOptions = {
+        type: 'custom',
+        content: kubeconfig,
+        context: context
+      };
+    } else if (token && server) {
+      // Token-based authentication
+      log('🔑 Using token-based authentication');
+      kubeconfigOptions = {
+        type: 'token',
+        token: token,
+        server: server
+      };
+    } else if (context) {
+      // Specific context from default kubeconfig
+      log('🎯 Using specific context from default kubeconfig:', context);
+      kubeconfigOptions = {
+        type: 'default',
+        context: context
+      };
+    } else {
+      // Use default kubeconfig
+      log('📂 Using default kubeconfig');
+      kubeconfigOptions = {
+        type: 'default',
+        context: clusterContext
+      };
+    }
+    
+    // Reinitialize with new kubeconfig
+    log('🔄 Reinitializing Kubernetes APIs with new configuration...');
+    const initSuccess = await initializeK8sApis(kubeconfigOptions);
+    if (!initSuccess) {
+      throw new Error('Failed to initialize Kubernetes APIs with provided configuration');
+    }
+    
     // Test the connection with detailed logging
-    log('Starting connection test...');
+    log('🔍 Starting connection test...');
     const connectionOk = await testConnection();
     if (!connectionOk) {
       const errorMessage = 'Failed to connect to Kubernetes cluster. Check if the cluster is running and accessible.';
-      log('ERROR: Connection test failed, returning error to client');
+      log('❌ Connection test failed, returning error to client');
       return res.status(500).json({ 
         error: errorMessage,
         details: {
           cluster: kc.getCurrentCluster()?.server,
           context: kc.getCurrentContext(),
-          suggestion: 'Verify kubectl connectivity with: kubectl cluster-info'
+          suggestion: 'Verify cluster connectivity and authentication credentials'
         }
       });
     }
-    log('Connection test passed, proceeding with cluster info retrieval...');
+    log('✅ Connection test passed, proceeding with cluster info retrieval...');
     
     // Get cluster info with detailed logging
-    log('Fetching cluster version...');
-    const clusterVersion = await getClusterVersion();
+    log('📊 Fetching cluster version...');
+    const clusterVersion = await kubeconfigManager.getClusterVersion(coreV1Api);
     
-    log('Fetching nodes...');
+    log('🖥️ Fetching nodes...');
     const nodesResponse = await coreV1Api.listNode();
-    log('Nodes response keys:', Object.keys(nodesResponse));
-    log('Nodes response structure:', {
-      hasBody: !!nodesResponse.body,
-      hasResponse: !!nodesResponse.response,
-      hasItems: !!(nodesResponse.body && nodesResponse.body.items),
-      responseItems: !!(nodesResponse.response && nodesResponse.response.body && nodesResponse.response.body.items),
-      directItems: !!nodesResponse.items
-    });
     
-    log('Fetching namespaces...');
+    log('📁 Fetching namespaces...');
     const namespacesResponse = await coreV1Api.listNamespace();
-    log('Namespaces response keys:', Object.keys(namespacesResponse));
-    log('Namespaces response structure:', {
-      hasBody: !!namespacesResponse.body,
-      hasResponse: !!namespacesResponse.response,
-      hasItems: !!(namespacesResponse.body && namespacesResponse.body.items),
-      responseItems: !!(namespacesResponse.response && namespacesResponse.response.body && namespacesResponse.response.body.items),
-      directItems: !!namespacesResponse.items
-    });
     
-    const currentContext = kc.getCurrentContext();
-    const currentUser = kc.getCurrentUser();
-    const currentCluster = kc.getCurrentCluster();
+    const configInfo = kubeconfigManager.getCurrentConfigInfo();
     
     log('Kubeconfig details:', {
-      context: currentContext,
-      user: currentUser?.name,
-      server: currentCluster?.server
+      context: configInfo?.context,
+      user: configInfo?.user?.name,
+      server: configInfo?.cluster?.server
     });
     
     const authState = {
       isAuthenticated: true,
       user: {
-        username: currentUser?.name || 'unknown',
+        username: configInfo?.user?.name || 'unknown',
         email: null,
         groups: [],
         permissions: ['*']
       },
-      token: 'real-cluster-token',
+      token: token || 'kubeconfig-based-auth',
       cluster: {
-        name: currentContext || 'local-cluster',
-        server: currentCluster?.server || 'unknown',
+        name: configInfo?.context || 'cluster',
+        server: configInfo?.cluster?.server || 'unknown',
         version: clusterVersion.gitVersion || 'unknown',
         versionDetails: clusterVersion,
         nodes: nodesResponse.items?.length || 0,
@@ -307,15 +518,16 @@ app.post('/api/auth/login', async (req, res) => {
       }
     };
     
-    log('Login successful', { 
+    log('✅ Login successful', { 
       cluster: authState.cluster.name,
       nodes: authState.cluster.nodes,
-      namespaces: authState.cluster.namespaces 
+      namespaces: authState.cluster.namespaces,
+      server: authState.cluster.server 
     });
     
     res.json(authState);
   } catch (error) {
-    log('ERROR: Login failed:', error.message);
+    log('❌ Login failed:', error.message);
     log('ERROR: Full error:', error);
     res.status(500).json({ error: error.message });
   }

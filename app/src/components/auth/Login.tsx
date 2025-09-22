@@ -47,6 +47,7 @@ const Login: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [kubeconfig, setKubeconfig] = useState('');
   const [token, setToken] = useState('');
+  const [server, setServer] = useState('');
   const [useDefault, setUseDefault] = useState(true);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -76,8 +77,8 @@ const Login: React.FC = () => {
         await login(kubeconfig);
       } else {
         // Token auth
-        console.log('Using token authentication...');
-        await login(undefined, token);
+        console.log('Using token authentication...', { hasToken: !!token, hasServer: !!server });
+        await login(undefined, token, server);
       }
       console.log('Login call completed successfully');
     } catch (error) {
@@ -148,6 +149,15 @@ const Login: React.FC = () => {
           <TabPanel value={tabValue} index={2}>
             <TextField
               fullWidth
+              label="Kubernetes API Server URL"
+              value={server}
+              onChange={(e) => setServer(e.target.value)}
+              placeholder="https://your-cluster-api:6443"
+              variant="outlined"
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              fullWidth
               label="Service Account Token"
               type="password"
               value={token}
@@ -158,7 +168,7 @@ const Login: React.FC = () => {
             />
             <Typography variant="body2" color="textSecondary">
               Use a service account token to authenticate with the cluster.
-              This requires proper RBAC setup.
+              This requires proper RBAC setup and the API server URL.
             </Typography>
           </TabPanel>
 
@@ -174,7 +184,7 @@ const Login: React.FC = () => {
               fullWidth
               variant="contained"
               size="large"
-              disabled={isLoading || (tabValue === 1 && !kubeconfig) || (tabValue === 2 && !token)}
+              disabled={isLoading || (tabValue === 1 && !kubeconfig) || (tabValue === 2 && (!token || !server))}
               startIcon={isLoading && <CircularProgress size={20} />}
             >
               {isLoading ? 'Connecting...' : 'Connect to Cluster'}

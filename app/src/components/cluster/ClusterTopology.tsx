@@ -168,7 +168,8 @@ const ClusterTopology: React.FC = () => {
       ctx.font = '12px Arial';
       ctx.textAlign = 'center';
       const nodeName = node.metadata?.name || 'Unknown';
-      ctx.fillText(nodeName.substring(0, 10) + '...', x, y - 25);
+      const displayName = typeof nodeName === 'string' && nodeName.length > 10 ? nodeName.substring(0, 10) + '...' : nodeName;
+      ctx.fillText(displayName, x, y - 25);
       
       // Pod count badge
       if (podCount > 0) {

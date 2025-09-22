@@ -5,7 +5,7 @@ import { kubernetesService } from '../services/kubernetes-api';
 
 interface AuthContextType {
   state: AuthState;
-  login: (config?: string, token?: string) => Promise<void>;
+  login: (config?: string, token?: string, server?: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   error: string | null;
@@ -47,13 +47,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const login = async (config?: string, token?: string) => {
+  const login = async (config?: string, token?: string, server?: string) => {
     setIsLoading(true);
     setError(null);
     
     try {
       await kubernetesService.initialize(config);
-      const authState = await kubernetesService.authenticate(token);
+      const authState = await kubernetesService.authenticate(token, config, server);
       
       dispatch({ type: 'LOGIN_SUCCESS', payload: authState });
       
@@ -61,6 +61,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('k8s-auth', JSON.stringify({
         token,
         config,
+        server,
         timestamp: Date.now()
       }));
     } catch (err) {
@@ -85,7 +86,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!storedAuth) return;
 
       try {
-        const { token, config, timestamp } = JSON.parse(storedAuth);
+        const { token, config, server, timestamp } = JSON.parse(storedAuth);
         
         // Check if stored auth is not too old (24 hours)
         if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
@@ -93,7 +94,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return;
         }
 
-        await login(config, token);
+        await login(config, token, server);
       } catch (error) {
         console.warn('Failed to restore authentication (this is normal in development):', error);
         localStorage.removeItem('k8s-auth');

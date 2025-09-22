@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ValidationProvider } from './contexts/ValidationContext';
 import { ThemeModeProvider } from './contexts/ThemeContext';
+import { ClusterProvider } from './contexts/ClusterContext';
 import { DependencyThemeContext, getEnvironmentTheme } from './config/dependency-theme';
 import Layout from './components/layout/Layout';
 import Login from './components/auth/Login';
@@ -31,6 +32,9 @@ import ComingSoon from './components/common/ComingSoon';
 import DevTest from './components/DevTest';
 import CRDGraphTest from './components/crd/CRDGraphTest';
 import SimpleCRDGraphTest from './components/crd/SimpleCRDGraphTest';
+import { StorageManager } from './components/storage';
+import { ClusterManager, ClusterHealthMonitor } from './components/cluster';
+import MulticlusterIntegrationTest from './components/testing/MulticlusterIntegrationTest';
 
 // Helper component for CRD detail redirect
 const CRDDetailRedirect: React.FC = () => {
@@ -80,6 +84,9 @@ const AppRoutes: React.FC = () => {
         {/* Cluster routes */}
         <Route path="/cluster/nodes" element={<NodesManager />} />
         <Route path="/cluster/topology" element={<ClusterTopology />} />
+        <Route path="/cluster/management" element={<ClusterManager />} />
+        <Route path="/cluster/health" element={<ClusterHealthMonitor />} />
+        <Route path="/cluster/integration-test" element={<MulticlusterIntegrationTest />} />
         
         {/* Namespace routes */}
         <Route path="/namespaces" element={<NamespaceManager />} />
@@ -142,9 +149,10 @@ const AppRoutes: React.FC = () => {
                 <Route path="/security/status" element={<SecurityComplianceStatus detailedView />} />
         
         {/* Storage routes */}
-        <Route path="/storage/persistent-volumes" element={<div>Persistent Volumes Page (Coming Soon)</div>} />
-        <Route path="/storage/persistent-volume-claims" element={<div>Persistent Volume Claims Page (Coming Soon)</div>} />
-        <Route path="/storage/storage-classes" element={<div>Storage Classes Page (Coming Soon)</div>} />
+        <Route path="/storage" element={<StorageManager initialView="overview" />} />
+        <Route path="/storage/persistent-volumes" element={<StorageManager initialView="persistent-volumes" />} />
+        <Route path="/storage/persistent-volume-claims" element={<StorageManager initialView="persistent-volume-claims" />} />
+        <Route path="/storage/storage-classes" element={<StorageManager initialView="storage-classes" />} />
         
         {/* Configuration routes */}
         <Route path="/configuration/configmaps" element={<div>ConfigMaps Page (Coming Soon)</div>} />
@@ -166,7 +174,6 @@ const AppRoutes: React.FC = () => {
 // Main App Component
 const App: React.FC = () => {
   // In development mode, always show login first
-  const isDevelopment = import.meta.env.DEV;
   
   const dependencyTheme = getEnvironmentTheme();
 
@@ -177,8 +184,9 @@ const App: React.FC = () => {
         <DependencyThemeContext.Provider value={dependencyTheme}>
           <ValidationProvider>
             <AuthProvider>
-              <Router>
-                <ErrorBoundary>
+              <ClusterProvider>
+                <Router>
+                  <ErrorBoundary>
                   <Routes>
                     <Route path="/dev-test" element={<DevTest />} />
                     <Route path="/crd-graph-test" element={<CRDGraphTest />} />
@@ -193,8 +201,9 @@ const App: React.FC = () => {
                       } 
                     />
                   </Routes>
-                </ErrorBoundary>
-              </Router>
+                  </ErrorBoundary>
+                </Router>
+              </ClusterProvider>
             </AuthProvider>
           </ValidationProvider>
         </DependencyThemeContext.Provider>
