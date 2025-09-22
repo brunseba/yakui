@@ -120,6 +120,16 @@ class KubeconfigManager {
       }
       
       kc.setCurrentContext(context);
+    } else {
+      // Auto-detect: use first available context if no current context
+      const currentContext = kc.getCurrentContext();
+      if (!currentContext) {
+        const contexts = kc.getContexts();
+        if (contexts.length > 0) {
+          console.log(`🔍 Auto-detecting context: using ${contexts[0].name}`);
+          kc.setCurrentContext(contexts[0].name);
+        }
+      }
     }
     
     console.log('✅ Default kubeconfig loaded');
@@ -368,6 +378,35 @@ class KubeconfigManager {
       user: this.activeConfig.getCurrentUser(),
       contexts: this.activeConfig.getContexts().map(ctx => ctx.name)
     };
+  }
+
+  /**
+   * Get available contexts from default kubeconfig
+   */
+  getAvailableContexts() {
+    try {
+      const kc = new this.k8s.KubeConfig();
+      kc.loadFromDefault();
+      const contexts = kc.getContexts();
+      const currentContext = kc.getCurrentContext();
+      
+      return {
+        contexts: contexts.map(ctx => ({
+          name: ctx.name,
+          cluster: ctx.cluster,
+          user: ctx.user,
+          namespace: ctx.namespace,
+          isCurrent: ctx.name === currentContext
+        })),
+        currentContext
+      };
+    } catch (error) {
+      console.error('❌ Failed to get available contexts:', error.message);
+      return {
+        contexts: [],
+        currentContext: null
+      };
+    }
   }
 
   /**

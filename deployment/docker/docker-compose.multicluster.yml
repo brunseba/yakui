@@ -5,7 +5,7 @@ services:
       context: ../..
       dockerfile: deployment/docker/Dockerfile.dev-frontend
       target: development
-    container_name: yakui-frontend
+    container_name: yakui-frontend-mc
     ports:
       - "5173:5173"
     volumes:
@@ -20,6 +20,7 @@ services:
       - VITE_ENABLE_STUB_FEATURES=true
       - VITE_ENABLE_SERVER_MASKING=false
       - VITE_ENABLE_VERBOSE_LOGGING=true
+      - VITE_MULTICLUSTER_MODE=true
     networks:
       - yakui-network
     depends_on:
@@ -32,28 +33,37 @@ services:
       retries: 3
       start_period: 10s
 
-  # Backend API Server (Express + Kubernetes Client)
+  # Multicluster Backend API Server
   backend:
     build:
       context: ../..
       dockerfile: deployment/docker/Dockerfile.multicluster-backend
-    container_name: yakui-backend
+    container_name: yakui-backend-mc
     ports:
       - "3001:3001"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # Enable access to host services
     volumes:
-      - ~/.kube:/home/node/.kube:ro  # Mount kubeconfig for Kubernetes access
-      # For development: allow hot-reload of tools directory
-      - ../../tools:/app-dev-tools:rw
+      - ../..:/app
+      - /app/node_modules
+      # Mount kubeconfig with proper permissions
+      - ~/.kube:/home/node/.kube:ro
+      # Optional: Mount additional kubeconfig locations
+      - ~/.minikube:/home/node/.minikube:ro
+      - ~/.k3s:/home/node/.k3s:ro
     environment:
       - NODE_ENV=development
       - API_PORT=3001
       - API_TIMEOUT=30000
-      # Multicluster support - use available context or auto-detect
-      - CLUSTER_CONTEXT=
+      # Multicluster configuration
       - ENABLE_MULTICLUSTER=true
       - KUBECONFIG_AUTO_DETECT=true
+      - CLUSTER_CONTEXT=
+      # Performance settings for multicluster
+      - MAX_RESOURCES_PER_TYPE=50
+      - MAX_NAMESPACES_TO_SCAN=5
+      - MAX_NODES_TO_INCLUDE=25
+      - MAX_CRD_INSTANCES_PER_NS=3
     networks:
       - yakui-network
     restart: unless-stopped
@@ -62,17 +72,49 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s  # Longer startup time for multicluster detection
     user: "node"
 
-  # Optional: Redis for caching (can be enabled if needed)
+  # Kubernetes Proxy Server (for advanced multicluster scenarios)
+  k8s-proxy:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dev-backend
+    container_name: yakui-k8s-proxy
+    ports:
+      - "3002:3002"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+      - ~/.kube:/home/node/.kube:ro
+    environment:
+      - NODE_ENV=development
+      - K8S_PROXY_PORT=3002
+      - FRONTEND_URL=http://localhost:5173
+    networks:
+      - yakui-network
+    restart: unless-stopped
+    command: ["node", "/app/tools/kubernetes-proxy-server.cjs"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    user: "node"
+    profiles:
+      - proxy  # Only start when explicitly enabled
+
+  # Optional: Redis for caching cluster information
   redis:
     image: redis:7-alpine
-    container_name: yakui-redis
+    container_name: yakui-redis-mc
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - redis-data-mc:/data
     networks:
       - yakui-network
     restart: unless-stopped
@@ -84,15 +126,15 @@ services:
     profiles:
       - cache  # Only start when explicitly enabled
 
-  # Optional: Prometheus for monitoring (can be enabled if needed)
+  # Optional: Prometheus for monitoring multicluster setup
   prometheus:
     image: prom/prometheus:latest
-    container_name: yakui-prometheus
+    container_name: yakui-prometheus-mc
     ports:
       - "9090:9090"
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - prometheus-data-mc:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -108,10 +150,10 @@ services:
 networks:
   yakui-network:
     driver: bridge
-    name: yakui-network
+    name: yakui-multicluster-network
 
 volumes:
-  redis-data:
-    name: yakui-redis-data
-  prometheus-data:
-    name: yakui-prometheus-data
+  redis-data-mc:
+    name: yakui-redis-multicluster-data
+  prometheus-data-mc:
+    name: yakui-prometheus-multicluster-data

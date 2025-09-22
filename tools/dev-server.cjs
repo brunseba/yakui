@@ -10,7 +10,13 @@ const enableVerboseLogging = nodeEnv === 'development';
 const apiTimeout = parseInt(process.env.API_TIMEOUT || '30000');
 // Get cluster context - use environment variable or fall back to current context
 let clusterContext = process.env.CLUSTER_CONTEXT;
-if (!clusterContext) {
+const enableAutoDetect = process.env.KUBECONFIG_AUTO_DETECT === 'true';
+const enableMulticluster = process.env.ENABLE_MULTICLUSTER === 'true';
+
+if (!clusterContext && enableAutoDetect) {
+  console.log('🔍 CLUSTER_CONTEXT not set, auto-detecting available contexts...');
+  console.log('   Multicluster mode enabled, will use first available context');
+} else if (!clusterContext) {
   console.log('ℹ️  CLUSTER_CONTEXT not set, will use current kubectl context');
   console.log('   You can explicitly set CLUSTER_CONTEXT to override this behavior');
 }
@@ -108,6 +114,19 @@ const initializeK8sApis = async (kubeconfigOptions = null) => {
       await kubeconfigManager.initialize(k8s);
     }
     
+    // Auto-detect available contexts if enabled
+    if (enableAutoDetect && !clusterContext && !kubeconfigOptions) {
+      console.log('🔍 Auto-detecting available kubeconfig contexts...');
+      const availableContexts = kubeconfigManager.getAvailableContexts();
+      if (availableContexts.contexts.length > 0) {
+        clusterContext = availableContexts.currentContext || availableContexts.contexts[0].name;
+        console.log(`✨ Auto-selected context: ${clusterContext}`);
+        console.log(`📝 Available contexts: ${availableContexts.contexts.map(c => c.name).join(', ')}`);
+      } else {
+        console.log('⚠️ No kubeconfig contexts found');
+      }
+    }
+    
     // Load kubeconfig based on provided options or use default
     const options = kubeconfigOptions || { 
       type: 'default',
@@ -139,7 +158,24 @@ const initializeK8sApis = async (kubeconfigOptions = null) => {
     log('All Kubernetes APIs initialized successfully');
     return true;
   } catch (error) {
-    log('ERROR: Failed to initialize Kubernetes APIs:', error.message);
+    const errorMessage = error.message || 'Unknown error';
+    
+    if (errorMessage.includes('not found') && errorMessage.includes('Available contexts:')) {
+      // Parse available contexts from error message
+      const contextMatch = errorMessage.match(/Available contexts: (.+)/);
+      const availableContexts = contextMatch ? contextMatch[1] : 'none';
+      
+      logAlways('❌ Failed to load kubeconfig:', errorMessage);
+      logAlways('💡 Available contexts:', availableContexts);
+      
+      if (enableMulticluster) {
+        logAlways('🔧 Multicluster mode enabled - you can add clusters dynamically through the UI');
+        logAlways('   The backend will start without a default cluster and wait for cluster configuration');
+      }
+    } else {
+      logAlways('ERROR: Failed to initialize Kubernetes APIs:', errorMessage);
+    }
+    
     return false;
   }
 };
@@ -4500,8 +4536,14 @@ const startServer = async () => {
   // Initialize Kubernetes APIs
   const initialized = await initializeK8sApis();
   if (!initialized) {
-    logAlways('❌ Failed to initialize Kubernetes APIs. Server will not start.');
-    process.exit(1);
+    if (enableMulticluster) {
+      logAlways('⚠️ Failed to initialize Kubernetes APIs, but continuing in multicluster mode.');
+      logAlways('💡 You can add cluster configurations dynamically through the API endpoints.');
+      logAlways('   Use POST /api/cluster/switch to configure a cluster.');
+    } else {
+      logAlways('❌ Failed to initialize Kubernetes APIs. Server will not start.');
+      process.exit(1);
+    }
   }
   
   app.listen(port, () => {
