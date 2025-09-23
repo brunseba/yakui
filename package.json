@@ -36,6 +36,7 @@
     "@mui/x-data-grid": "^8.11.3",
     "@tanstack/react-query": "^5.89.0",
     "@types/js-yaml": "^4.0.9",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@xyflow/react": "^12.8.5",
     "axios": "^1.12.2",
     "cors": "^2.8.5",
@@ -46,6 +47,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.1",
+    "react-syntax-highlighter": "^15.6.6",
     "recharts": "^3.2.1"
   },
   "devDependencies": {

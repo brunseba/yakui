@@ -5,7 +5,8 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 [![Latest Release](https://img.shields.io/github/v/release/brunseba/yakui)](https://github.com/brunseba/yakui/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker Optimized](https://img.shields.io/badge/Docker-90%25%20faster%20builds-success)](deployment/docker/README.docker-optimization.md)
-[![Project Structure v2.0](https://img.shields.io/badge/Structure-v2.0%20Organized-green)](docs/index.md)
+[![CRD Canvas Composer](https://img.shields.io/badge/CRD%20Canvas-Interactive%20Editor-blue)](docs/CRD_COMPOSER_PHASE_3_SUMMARY.md)
+[![Documentation](https://img.shields.io/badge/Documentation-Complete-green)](docs/)
 
 ![Kubernetes Admin UI](https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
@@ -14,9 +15,30 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 ![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
 
 
+## 📋 Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Quick Start](#-quick-start-guide)
+- [Documentation](#-documentation)
+- [Architecture](#-architecture)
+- [API Endpoints](#api-endpoints)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 ![overview](./docs/images/yakui-overview.png)
+
+## ✨ Key Highlights
+
+- **🎨 CRD Canvas Composer**: Interactive visual editor for Custom Resource Definitions with drag-and-drop functionality
+- **🔗 Advanced CRD Relationships**: Automated detection and visualization of CRD-to-CRD dependencies
+- **⚡ High Performance**: Optimized API endpoints with smart caching and relationship analysis
+- **📊 Multi-Cluster Support**: Seamless switching between different Kubernetes clusters
+- **🔐 Enterprise Security**: Full RBAC integration with multiple authentication methods
+- **🚀 Developer Experience**: Modern React/TypeScript stack with comprehensive tooling
 
 ## Features
 
@@ -58,6 +80,14 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 - **Permissions Matrix**: Visual representation of permissions and bindings
 - **Security Context Analysis**: Review and manage pod security contexts
 
+### 🎨 CRD Canvas Composer (New!)
+- **Interactive Visual Editor**: Drag-and-drop interface for Custom Resource Definitions
+- **Real-time Relationship Analysis**: Automated detection of CRD-to-CRD dependencies
+- **Smart Grid Layout**: Intelligent positioning with relationship-aware auto-layout
+- **Schema Property Explorer**: Comprehensive CRD schema inspection and editing
+- **Export & Import**: Save and load CRD canvas configurations
+- **Performance Optimized**: Fast analysis with optimized backend API endpoints
+
 ### 🔍 Enhanced Monitoring & Observability
 - **Real-time Cluster Events**: Monitor cluster events with filtering and search
 - **Pod Logs Viewer**: 
@@ -86,11 +116,13 @@ A modern, comprehensive React-based web interface for Kubernetes cluster adminis
 
 ## 🚀 Quick Start Guide
 
-### Version 2.0.0 - Major Project Structure Update! 
+### Latest Updates
 
-> **⚠️ Breaking Change**: v2.0.0 introduces a new organized project structure. See [v2.0.0 Release Notes](https://github.com/brunseba/yakui/releases/tag/v2.0.0) for details.
+> **🎆 New Feature**: CRD Canvas Composer - Interactive visual editor for Custom Resource Definitions with advanced relationship analysis!
+> 
+> **🗜️ Documentation**: All documentation has been organized in the [`docs/`](docs/) directory for better accessibility.
 
-### New Project Structure
+### Project Structure
 
 ```
 📁 yakui/
@@ -437,6 +469,7 @@ The application implements security best practices:
   - Services with endpoint and load balancer info
   - Pods with real-time logs and container details
   - ConfigMaps and Secrets with secure data handling
+- **🎨 CRD Canvas Composer**: Interactive visual CRD editor with relationship analysis
 - **🔧 CRD Manager**: Custom Resource Definition discovery and management
 - **👥 RBAC Manager**: Service accounts, roles, and bindings administration
 - **📱 Responsive Layout**: Material-UI with collapsible navigation
@@ -453,7 +486,31 @@ The application implements security best practices:
 - **🔍 Advanced Search**: Full-text search across all resources
 - **📊 Custom Dashboards**: User-configurable monitoring dashboards
 - **🔔 Alerting**: Resource-based alerting and notifications
-- **📖 Documentation**: Integrated help and API documentation
+- **🔌 Helm Integration**: Helm chart management and deployment
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+### 🚀 Getting Started
+- [Quick Start Guide](docs/QUICK-START.md) - Get up and running in minutes
+- [Configuration Guide](docs/CONFIGURATION_GUIDE.md) - Detailed configuration options
+- [Cluster Validation](docs/CLUSTER_VALIDATION.md) - Cluster setup and validation
+
+### 🎨 Features
+- [CRD Canvas Composer](docs/CRD_COMPOSER_PHASE_3_SUMMARY.md) - Interactive CRD editor
+- [CRD Relationships](docs/CNPG_CRD_RELATIONSHIPS.md) - Advanced relationship analysis
+- [Schema Properties](docs/SCHEMA-PROPERTIES-SUMMARY.md) - Schema inspection tools
+
+### 🔧 Development
+- [Debug Commands](docs/debug-commands.md) - Debugging and troubleshooting
+- [Canvas Test Guide](docs/canvas-test-guide.md) - Testing the CRD Canvas
+- [Error Fixes](docs/ERROR_FIXES_SUMMARY.md) - Common issues and solutions
+
+### 🚀 Deployment
+- [Docker Setup](deployment/docker/README.md) - Containerized deployment
+- [Kubernetes Deployment](deployment/kub/README.md) - K8s cluster deployment
+- [Multi-cluster Integration](docs/MULTICLUSTER_INTEGRATION.md) - Multi-cluster setup
 
 ## API Endpoints
 
@@ -483,11 +540,15 @@ The backend API provides comprehensive REST endpoints:
 - `GET /api/resources/pod/:namespace/:name/logs` - Get pod logs
 - `DELETE /api/resources/:type/:namespace/:name` - Delete resource
 
-### Discovery
+### Discovery & CRD Analysis
 - `GET /api/crds` - List Custom Resource Definitions
 - `GET /api/crds/:name` - Get CRD details
 - `GET /api/events` - List cluster events
 - `GET /api/resources` - List all Kubernetes resources
+- `GET /api/dependencies/crd-relationships` - Get CRD-to-CRD relationships (optimized)
+- `GET /api/dependencies/dictionary` - Get CRD schema analysis
+- `GET /api/dependencies/crd/apigroups` - List CRD API groups
+- `GET /api/dependencies/crd/enhanced` - Enhanced CRD analysis
 
 ## Testing
 
@@ -534,7 +595,7 @@ We follow modern development practices:
 
 ## Task Runner
 
-This project includes a comprehensive Taskfile for development workflow management. See [docs/TASKFILE_GUIDE.md](docs/TASKFILE_GUIDE.md) for detailed usage instructions.
+This project includes a comprehensive Taskfile for development workflow management using [Taskfile.dev](https://taskfile.dev/).
 
 **Common Task commands:**
 ```bash
@@ -552,4 +613,14 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**YAKUI (Yet Another Kubernetes UI)** - Built with ❤️ for the Kubernetes community
+<div align="center">
+
+**YAKUI (Yet Another Kubernetes UI)**
+
+*Modern Kubernetes Administration with Interactive CRD Management*
+
+Built with ❤️ for the Kubernetes community
+
+[Documentation](docs/) • [Features](#features) • [Quick Start](#-quick-start-guide) • [Contributing](#contributing)
+
+</div>

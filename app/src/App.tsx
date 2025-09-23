@@ -19,6 +19,8 @@ import ResourceDetail from './components/resources/ResourceDetail';
 import ResourceManager from './components/resources/ResourceManager';
 import CRDManager from './components/crds/CRDManager';
 import CRDDetail from './components/crds/CRDDetail';
+import { CRDGridView } from './components/crds/CRDGridView';
+import { CRDComposer } from './components/composer/CRDComposer';
 import DependencyBrowser from './components/dependencies/DependencyBrowser';
 import CRDAnalysis from './components/crd/CRDAnalysis';
 import RBACManager from './components/rbac/RBACManager';
@@ -115,6 +117,8 @@ const AppRoutes: React.FC = () => {
         {/* CRD routes */}
         <Route path="/dictionary/crds" element={<CRDManager />} />
         <Route path="/dictionary/crds/:name" element={<CRDDetail />} />
+        <Route path="/dictionary/canvas-view" element={<CRDGridView />} />
+        <Route path="/dictionary/composer" element={<CRDComposer />} />
         {/* Legacy routes for backward compatibility */}
         <Route path="/crds" element={<Navigate to="/dictionary/crds" replace />} />
         <Route path="/workloads/crds" element={<Navigate to="/dictionary/crds" replace />} />

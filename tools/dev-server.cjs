@@ -1687,6 +1687,577 @@ app.post('/api/helm/releases/:namespace/:name/rollback', async (req, res) => {
   }
 });
 
+// === CRD COMPOSER API ENDPOINTS ===
+
+// Helper function to validate CRD schema structure
+const validateCRDSchema = (schema) => {
+  const errors = [];
+  
+  if (!schema || typeof schema !== 'object') {
+    errors.push('Schema must be a valid object');
+    return { isValid: false, errors };
+  }
+  
+  // Check required OpenAPI v3 schema properties
+  if (!schema.type) {
+    errors.push('Schema must have a type property');
+  }
+  
+  if (schema.type === 'object' && !schema.properties) {
+    errors.push('Object type schema must have properties');
+  }
+  
+  // Validate nested properties recursively
+  if (schema.properties) {
+    Object.entries(schema.properties).forEach(([key, prop]) => {
+      if (!prop.type && !prop.$ref && !prop.oneOf && !prop.anyOf) {
+        errors.push(`Property '${key}' must have a type, $ref, oneOf, or anyOf`);
+      }
+    });
+  }
+  
+  return { isValid: errors.length === 0, errors };
+};
+
+// Helper function to generate CRD template from user input
+const generateCRDFromSchema = (composerData) => {
+  const {
+    metadata,
+    spec: specInput,
+    schema: customSchema
+  } = composerData;
+  
+  // Generate the base CRD structure
+  const crd = {
+    apiVersion: 'apiextensions.k8s.io/v1',
+    kind: 'CustomResourceDefinition',
+    metadata: {
+      name: `${metadata.names.plural}.${metadata.group}`,
+      labels: {
+        'app.kubernetes.io/name': metadata.names.kind.toLowerCase(),
+        'app.kubernetes.io/component': 'crd',
+        'app.kubernetes.io/created-by': 'crd-composer'
+      },
+      annotations: {
+        'crd-composer.kubernetes-admin-ui/created': new Date().toISOString(),
+        'crd-composer.kubernetes-admin-ui/version': '1.0.0'
+      }
+    },
+    spec: {
+      group: metadata.group,
+      versions: [{
+        name: specInput.version || 'v1',
+        served: true,
+        storage: true,
+        schema: {
+          openAPIV3Schema: {
+            type: 'object',
+            properties: {
+              apiVersion: {
+                description: 'APIVersion defines the versioned schema of this representation of an object.',
+                type: 'string'
+              },
+              kind: {
+                description: 'Kind is a string value representing the REST resource this object represents.',
+                type: 'string'
+              },
+              metadata: {
+                type: 'object'
+              },
+              spec: customSchema || {
+                type: 'object',
+                description: `Specification for ${metadata.names.kind}`,
+                properties: {
+                  // Default spec properties can be added here
+                }
+              },
+              status: {
+                type: 'object',
+                description: `Status for ${metadata.names.kind}`,
+                properties: {
+                  conditions: {
+                    description: 'Conditions represent the latest available observations of the resource state.',
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        type: { type: 'string' },
+                        status: { type: 'string', enum: ['True', 'False', 'Unknown'] },
+                        reason: { type: 'string' },
+                        message: { type: 'string' },
+                        lastTransitionTime: { type: 'string', format: 'date-time' }
+                      },
+                      required: ['type', 'status']
+                    }
+                  }
+                }
+              }
+            },
+            required: ['apiVersion', 'kind', 'metadata']
+          }
+        },
+        subresources: {
+          status: {}
+        }
+      }],
+      scope: specInput.scope || 'Namespaced',
+      names: {
+        plural: metadata.names.plural,
+        singular: metadata.names.singular || metadata.names.plural.slice(0, -1),
+        kind: metadata.names.kind,
+        shortNames: metadata.names.shortNames || []
+      }
+    }
+  };
+  
+  // Add additional properties if specified
+  if (specInput.additionalPrinterColumns) {
+    crd.spec.versions[0].additionalPrinterColumns = specInput.additionalPrinterColumns;
+  }
+  
+  return crd;
+};
+
+// Get CRD templates
+app.get('/api/composer/templates', async (req, res) => {
+  log('CRD Composer templates request received');
+  
+  try {
+    const templates = [
+      {
+        id: 'basic',
+        name: 'Basic Custom Resource',
+        description: 'A simple custom resource with basic spec and status fields',
+        template: {
+          metadata: {
+            group: 'example.com',
+            names: {
+              kind: 'MyResource',
+              plural: 'myresources',
+              singular: 'myresource',
+              shortNames: ['mr']
+            }
+          },
+          spec: {
+            version: 'v1',
+            scope: 'Namespaced'
+          },
+          schema: {
+            type: 'object',
+            description: 'Specification for MyResource',
+            properties: {
+              replicas: {
+                type: 'integer',
+                description: 'Number of desired replicas',
+                minimum: 1,
+                default: 1
+              },
+              image: {
+                type: 'string',
+                description: 'Container image to use'
+              }
+            },
+            required: ['image']
+          }
+        }
+      },
+      {
+        id: 'application',
+        name: 'Application Resource',
+        description: 'An application-type custom resource with deployment configuration',
+        template: {
+          metadata: {
+            group: 'apps.example.com',
+            names: {
+              kind: 'Application',
+              plural: 'applications',
+              singular: 'application',
+              shortNames: ['app']
+            }
+          },
+          spec: {
+            version: 'v1',
+            scope: 'Namespaced'
+          },
+          schema: {
+            type: 'object',
+            description: 'Application specification',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Application name'
+              },
+              version: {
+                type: 'string',
+                description: 'Application version'
+              },
+              deployment: {
+                type: 'object',
+                properties: {
+                  replicas: {
+                    type: 'integer',
+                    minimum: 1,
+                    default: 1
+                  },
+                  image: {
+                    type: 'string',
+                    description: 'Container image'
+                  },
+                  resources: {
+                    type: 'object',
+                    properties: {
+                      requests: {
+                        type: 'object',
+                        properties: {
+                          cpu: { type: 'string' },
+                          memory: { type: 'string' }
+                        }
+                      },
+                      limits: {
+                        type: 'object',
+                        properties: {
+                          cpu: { type: 'string' },
+                          memory: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                },
+                required: ['image']
+              }
+            },
+            required: ['name', 'deployment']
+          }
+        }
+      },
+      {
+        id: 'configuration',
+        name: 'Configuration Resource',
+        description: 'A configuration management custom resource',
+        template: {
+          metadata: {
+            group: 'config.example.com',
+            names: {
+              kind: 'Configuration',
+              plural: 'configurations',
+              singular: 'configuration',
+              shortNames: ['cfg']
+            }
+          },
+          spec: {
+            version: 'v1',
+            scope: 'Namespaced'
+          },
+          schema: {
+            type: 'object',
+            description: 'Configuration specification',
+            properties: {
+              settings: {
+                type: 'object',
+                description: 'Configuration settings',
+                additionalProperties: {
+                  type: 'string'
+                }
+              },
+              validation: {
+                type: 'object',
+                properties: {
+                  required: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Required configuration keys'
+                  },
+                  schema: {
+                    type: 'object',
+                    description: 'JSON schema for validation'
+                  }
+                }
+              }
+            },
+            required: ['settings']
+          }
+        }
+      }
+    ];
+    
+    log(`Retrieved ${templates.length} CRD templates`);
+    res.json({ templates });
+  } catch (error) {
+    log('ERROR: Failed to get CRD templates:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate CRD from composer input
+app.post('/api/composer/generate', async (req, res) => {
+  log('CRD Composer generate request received');
+  
+  try {
+    const composerData = req.body;
+    
+    if (!composerData) {
+      throw new Error('Composer data is required');
+    }
+    
+    // Validate required fields
+    if (!composerData.metadata || !composerData.metadata.group || !composerData.metadata.names) {
+      throw new Error('Metadata with group and names is required');
+    }
+    
+    if (!composerData.metadata.names.kind || !composerData.metadata.names.plural) {
+      throw new Error('Kind and plural names are required');
+    }
+    
+    // Validate custom schema if provided
+    if (composerData.schema) {
+      const schemaValidation = validateCRDSchema(composerData.schema);
+      if (!schemaValidation.isValid) {
+        return res.status(400).json({
+          error: 'Invalid schema',
+          details: schemaValidation.errors
+        });
+      }
+    }
+    
+    // Generate the CRD
+    const generatedCRD = generateCRDFromSchema(composerData);
+    
+    log('Successfully generated CRD:', generatedCRD.metadata.name);
+    res.json({
+      success: true,
+      crd: generatedCRD,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        crdName: generatedCRD.metadata.name,
+        group: generatedCRD.spec.group,
+        kind: generatedCRD.spec.names.kind
+      }
+    });
+  } catch (error) {
+    log('ERROR: Failed to generate CRD:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Validate CRD structure
+app.post('/api/composer/validate', async (req, res) => {
+  log('CRD Composer validate request received');
+  
+  try {
+    const { crd, schemaOnly } = req.body;
+    
+    if (!crd) {
+      throw new Error('CRD data is required for validation');
+    }
+    
+    const validationResults = {
+      isValid: true,
+      errors: [],
+      warnings: [],
+      metadata: {
+        validatedAt: new Date().toISOString()
+      }
+    };
+    
+    // Validate basic CRD structure
+    if (!schemaOnly) {
+      if (crd.apiVersion !== 'apiextensions.k8s.io/v1') {
+        validationResults.errors.push('CRD must use apiVersion: apiextensions.k8s.io/v1');
+      }
+      
+      if (crd.kind !== 'CustomResourceDefinition') {
+        validationResults.errors.push('CRD must have kind: CustomResourceDefinition');
+      }
+      
+      if (!crd.metadata || !crd.metadata.name) {
+        validationResults.errors.push('CRD must have metadata.name');
+      }
+      
+      if (!crd.spec) {
+        validationResults.errors.push('CRD must have spec');
+      } else {
+        if (!crd.spec.group) {
+          validationResults.errors.push('CRD spec must have group');
+        }
+        
+        if (!crd.spec.names) {
+          validationResults.errors.push('CRD spec must have names');
+        } else {
+          if (!crd.spec.names.kind) {
+            validationResults.errors.push('CRD spec.names must have kind');
+          }
+          if (!crd.spec.names.plural) {
+            validationResults.errors.push('CRD spec.names must have plural');
+          }
+        }
+        
+        if (!crd.spec.versions || !Array.isArray(crd.spec.versions) || crd.spec.versions.length === 0) {
+          validationResults.errors.push('CRD spec must have at least one version');
+        }
+      }
+    }
+    
+    // Validate schema if present
+    if (crd.spec && crd.spec.versions) {
+      crd.spec.versions.forEach((version, index) => {
+        if (version.schema && version.schema.openAPIV3Schema) {
+          const schemaValidation = validateCRDSchema(version.schema.openAPIV3Schema);
+          if (!schemaValidation.isValid) {
+            validationResults.errors.push(...schemaValidation.errors.map(err => 
+              `Version ${version.name || index}: ${err}`
+            ));
+          }
+        } else {
+          validationResults.warnings.push(`Version ${version.name || index} has no schema defined`);
+        }
+      });
+    }
+    
+    // Check for common best practices
+    if (!schemaOnly && crd.metadata && crd.spec) {
+      const expectedName = `${crd.spec.names?.plural}.${crd.spec.group}`;
+      if (crd.metadata.name !== expectedName) {
+        validationResults.warnings.push(`CRD name '${crd.metadata.name}' should match pattern '${expectedName}'`);
+      }
+    }
+    
+    validationResults.isValid = validationResults.errors.length === 0;
+    
+    log(`CRD validation completed: ${validationResults.isValid ? 'VALID' : 'INVALID'} (${validationResults.errors.length} errors, ${validationResults.warnings.length} warnings)`);
+    res.json(validationResults);
+  } catch (error) {
+    log('ERROR: Failed to validate CRD:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Preview generated YAML
+app.post('/api/composer/preview', async (req, res) => {
+  log('CRD Composer preview request received');
+  
+  try {
+    const { crd, format } = req.body;
+    
+    if (!crd) {
+      throw new Error('CRD data is required for preview');
+    }
+    
+    // For now, return the JSON representation
+    // In a real implementation, you might want to use a YAML library
+    let preview;
+    
+    if (format === 'yaml') {
+      // Convert to YAML string representation
+      // This is a simplified YAML conversion - in production you'd use a proper YAML library
+      preview = JSON.stringify(crd, null, 2);
+    } else {
+      preview = JSON.stringify(crd, null, 2);
+    }
+    
+    log('Successfully generated CRD preview');
+    res.json({
+      success: true,
+      preview: preview,
+      format: format || 'json',
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        crdName: crd.metadata?.name,
+        size: preview.length
+      }
+    });
+  } catch (error) {
+    log('ERROR: Failed to generate CRD preview:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply/Create CRD in cluster
+app.post('/api/composer/apply', async (req, res) => {
+  log('CRD Composer apply request received');
+  
+  try {
+    const { crd, dryRun } = req.body;
+    
+    if (!crd) {
+      throw new Error('CRD data is required');
+    }
+    
+    if (!apiExtensionsV1Api) {
+      throw new Error('Kubernetes API not initialized');
+    }
+    
+    // Validate CRD before applying
+    const validation = validateCRDSchema(crd.spec?.versions?.[0]?.schema?.openAPIV3Schema);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        error: 'CRD validation failed',
+        details: validation.errors
+      });
+    }
+    
+    if (dryRun) {
+      log('Dry run - CRD validation passed, would create:', crd.metadata.name);
+      return res.json({
+        success: true,
+        dryRun: true,
+        message: 'CRD validation passed - ready to apply',
+        crdName: crd.metadata.name
+      });
+    }
+    
+    try {
+      // Check if CRD already exists
+      try {
+        await apiExtensionsV1Api.readCustomResourceDefinition({ name: crd.metadata.name });
+        // CRD exists, update it
+        log(`Updating existing CRD: ${crd.metadata.name}`);
+        const updateResponse = await apiExtensionsV1Api.replaceCustomResourceDefinition({ 
+          name: crd.metadata.name, 
+          body: crd 
+        });
+        
+        const updatedCRD = updateResponse.body || updateResponse;
+        log('Successfully updated CRD:', crd.metadata.name);
+        
+        res.json({
+          success: true,
+          action: 'updated',
+          crd: updatedCRD,
+          message: `CRD ${crd.metadata.name} updated successfully`
+        });
+      } catch (readError) {
+        if (readError.response?.statusCode === 404) {
+          // CRD doesn't exist, create it
+          log(`Creating new CRD: ${crd.metadata.name}`);
+          const createResponse = await apiExtensionsV1Api.createCustomResourceDefinition({ body: crd });
+          
+          const createdCRD = createResponse.body || createResponse;
+          log('Successfully created CRD:', crd.metadata.name);
+          
+          res.json({
+            success: true,
+            action: 'created',
+            crd: createdCRD,
+            message: `CRD ${crd.metadata.name} created successfully`
+          });
+        } else {
+          throw readError;
+        }
+      }
+    } catch (apiError) {
+      log('ERROR: Kubernetes API error:', apiError.message);
+      res.status(500).json({ 
+        error: 'Failed to apply CRD to cluster',
+        details: apiError.message,
+        kubernetesError: true
+      });
+    }
+  } catch (error) {
+    log('ERROR: Failed to apply CRD:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // === RESOURCE DEPENDENCY ENDPOINTS ===
 
 // Cache for workloads to avoid repeated API calls
@@ -4581,6 +5152,7 @@ const startServer = async () => {
     log('    GET    /api/dependencies/dictionary (Legacy CRD Schema Analysis)');
     log('    GET    /api/dependencies/crd/apigroups');
     log('    GET    /api/dependencies/crd/enhanced');
+    log('    GET    /api/dependencies/crd/relationships (CRD-to-CRD Only - Optimized)');
     log('    GET    /api/dependencies/crd/export (JSON/CSV/Markdown - CRD Schema Export)');
     log('');
     log('CORS Policy: Accepting requests from any localhost port (development mode)');
@@ -4859,6 +5431,349 @@ app.delete('/api/rbac/clusterrolebindings/:name', async (req, res) => {
   } catch (error) {
     log(`ERROR: Failed to delete cluster role binding ${name}:`, error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// === CRD-TO-CRD RELATIONSHIPS API ===
+// Specialized API for Canvas Composer - focuses only on CRD-to-CRD relationships
+
+// Cache for CRD relationship analysis to improve performance
+const crdRelationshipCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Detect relationships between two CRDs based on schema analysis
+ * @param {Object} sourceCRD - Source CRD definition
+ * @param {Object} targetCRD - Target CRD definition
+ * @returns {Array} Array of detected relationships
+ */
+const detectCRDRelationships = (sourceCRD, targetCRD) => {
+  const relationships = [];
+  const sourceId = `crd-${sourceCRD.metadata.name}`;
+  const targetId = `crd-${targetCRD.metadata.name}`;
+  const targetKind = targetCRD.spec.names.kind;
+  const targetGroup = targetCRD.spec.group;
+  const targetName = targetCRD.metadata.name;
+  
+  // Analyze all versions of the source CRD
+  const versions = sourceCRD.spec.versions || [];
+  
+  for (const version of versions) {
+    const schema = version.schema?.openAPIV3Schema;
+    if (!schema) continue;
+    
+    // Convert schema to string for pattern matching (cached for performance)
+    const schemaStr = JSON.stringify(schema).toLowerCase();
+    
+    // Detection patterns (ordered by confidence)
+    const detectionPatterns = [
+      // 1. Direct field references (highest confidence)
+      {
+        patterns: [`${targetKind.toLowerCase()}ref`, `${targetKind.toLowerCase()}name`, `${targetKind.toLowerCase()}selector`],
+        type: 'reference',
+        strength: 'strong',
+        confidenceBoost: 0.9
+      },
+      // 2. Kind mentions in field names (high confidence)
+      {
+        patterns: [targetKind.toLowerCase()],
+        type: 'reference',
+        strength: 'strong',
+        confidenceBoost: 0.7
+      },
+      // 3. Group mentions (medium confidence)
+      {
+        patterns: [targetGroup.toLowerCase()],
+        type: 'dependency',
+        strength: 'weak',
+        confidenceBoost: 0.5
+      },
+      // 4. Full CRD name mentions (medium-high confidence)
+      {
+        patterns: [targetName.toLowerCase()],
+        type: 'reference',
+        strength: 'strong',
+        confidenceBoost: 0.8
+      }
+    ];
+    
+    // Check each pattern
+    for (const detection of detectionPatterns) {
+      for (const pattern of detection.patterns) {
+        if (schemaStr.includes(pattern)) {
+          // Find the specific field that contains the reference
+          const fieldPath = findFieldPath(schema, pattern);
+          
+          const relationshipId = `${sourceId}-${detection.type}-${targetId}-${pattern}`;
+          
+          relationships.push({
+            id: relationshipId,
+            source: sourceId,
+            target: targetId,
+            type: detection.type,
+            strength: detection.strength,
+            metadata: {
+              sourceField: fieldPath || `detected-via-${pattern}`,
+              reason: `CRD schema contains '${pattern}' referencing ${targetKind} (${targetGroup})`,
+              schemaVersion: version.name,
+              referenceType: 'crd-to-crd',
+              pattern: pattern,
+              confidence: detection.confidenceBoost
+            }
+          });
+          
+          // Break after first match to avoid duplicates
+          break;
+        }
+      }
+    }
+  }
+  
+  return relationships;
+};
+
+/**
+ * Helper function to find the field path containing a pattern
+ * @param {Object} schema - OpenAPI schema object
+ * @param {String} pattern - Pattern to search for
+ * @param {String} currentPath - Current path in schema
+ * @returns {String|null} Field path or null
+ */
+const findFieldPath = (schema, pattern, currentPath = '') => {
+  if (!schema || typeof schema !== 'object') return null;
+  
+  // Check current level properties
+  if (schema.properties) {
+    for (const [propName, propSchema] of Object.entries(schema.properties)) {
+      const propPath = currentPath ? `${currentPath}.${propName}` : propName;
+      
+      // Check if property name matches pattern
+      if (propName.toLowerCase().includes(pattern)) {
+        return propPath;
+      }
+      
+      // Check property description
+      if (propSchema.description && propSchema.description.toLowerCase().includes(pattern)) {
+        return propPath;
+      }
+      
+      // Recurse into nested properties (limit depth for performance)
+      if (currentPath.split('.').length < 3) {
+        const nestedPath = findFieldPath(propSchema, pattern, propPath);
+        if (nestedPath) return nestedPath;
+      }
+    }
+  }
+  
+  return null;
+};
+
+/**
+ * Optimized CRD-to-CRD relationship analysis
+ * @param {Object} options - Analysis options
+ * @returns {Object} Analysis results with metadata, crds, and relationships
+ */
+const analyzeCRDRelationshipsOnly = async (options = {}) => {
+  const {
+    apiGroups = [],
+    crds = [],
+    maxRelationships = 100,
+    relationshipTypes = ['reference', 'composition', 'dependency'],
+    includeMetadata = true
+  } = options;
+  
+  const startTime = Date.now();
+  
+  try {
+    log('🔍 Starting CRD-to-CRD relationship analysis');
+    log(`Options: apiGroups=${apiGroups.length}, crds=${crds.length}, maxRelationships=${maxRelationships}`);
+    
+    // Fetch all CRDs from cluster
+    const crdResponse = await apiExtensionsV1Api.listCustomResourceDefinition();
+    const allCRDs = crdResponse.items || [];
+    
+    // Filter CRDs based on options
+    let filteredCRDs = allCRDs;
+    
+    if (apiGroups.length > 0) {
+      filteredCRDs = filteredCRDs.filter(crd => 
+        apiGroups.some(group => crd.spec.group === group)
+      );
+    }
+    
+    if (crds.length > 0) {
+      filteredCRDs = filteredCRDs.filter(crd => 
+        crds.some(crdName => 
+          crd.metadata.name === crdName || 
+          crd.spec.names.kind.toLowerCase() === crdName.toLowerCase()
+        )
+      );
+    }
+    
+    log(`Analyzing ${filteredCRDs.length} CRDs for relationships`);
+    
+    // Build CRD metadata array
+    const crdMetadata = filteredCRDs.map(crd => ({
+      id: `crd-${crd.metadata.name}`,
+      name: crd.metadata.name,
+      kind: crd.spec.names.kind,
+      group: crd.spec.group,
+      version: crd.spec.versions?.find(v => v.storage)?.name || crd.spec.versions?.[0]?.name || 'v1',
+      scope: crd.spec.scope === 'Cluster' ? 'Cluster' : 'Namespaced',
+      plural: crd.spec.names.plural,
+      shortNames: crd.spec.names.shortNames || [],
+      categories: crd.spec.names.categories || []
+    }));
+    
+    // Detect relationships between CRDs
+    const allRelationships = [];
+    const processedPairs = new Set();
+    
+    // Optimized O(n²) analysis with early exit
+    for (let i = 0; i < filteredCRDs.length && allRelationships.length < maxRelationships; i++) {
+      for (let j = 0; j < filteredCRDs.length && allRelationships.length < maxRelationships; j++) {
+        if (i === j) continue; // Skip self-references
+        
+        const sourceCRD = filteredCRDs[i];
+        const targetCRD = filteredCRDs[j];
+        const pairKey = `${sourceCRD.metadata.name}->${targetCRD.metadata.name}`;
+        
+        // Avoid duplicate analysis
+        if (processedPairs.has(pairKey)) continue;
+        processedPairs.add(pairKey);
+        
+        // Detect relationships
+        const relationships = detectCRDRelationships(sourceCRD, targetCRD);
+        
+        // Filter by requested relationship types
+        const filteredRelationships = relationships.filter(rel => 
+          relationshipTypes.includes(rel.type)
+        );
+        
+        allRelationships.push(...filteredRelationships);
+      }
+    }
+    
+    // Sort relationships by confidence (highest first)
+    const sortedRelationships = allRelationships
+      .sort((a, b) => (b.metadata.confidence || 0) - (a.metadata.confidence || 0))
+      .slice(0, maxRelationships);
+    
+    const analysisTime = Date.now() - startTime;
+    
+    const result = {
+      metadata: {
+        timestamp: new Date().toISOString(),
+        analysisTimeMs: analysisTime,
+        crdCount: filteredCRDs.length,
+        relationshipCount: sortedRelationships.length,
+        apiGroups: [...new Set(filteredCRDs.map(crd => crd.spec.group))],
+        analysisOptions: {
+          apiGroups,
+          crds,
+          maxRelationships,
+          relationshipTypes,
+          includeMetadata
+        }
+      },
+      crds: crdMetadata,
+      relationships: sortedRelationships
+    };
+    
+    log(`✅ CRD relationship analysis complete: ${crdMetadata.length} CRDs, ${sortedRelationships.length} relationships in ${analysisTime}ms`);
+    
+    return result;
+    
+  } catch (error) {
+    log('ERROR: Failed to analyze CRD relationships:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * Get cached CRD relationships or perform fresh analysis
+ * @param {String} cacheKey - Cache key for the request
+ * @param {Object} options - Analysis options
+ * @returns {Object} Analysis results
+ */
+const getCachedCRDRelationships = async (cacheKey, options) => {
+  const cached = crdRelationshipCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    log(`📋 Returning cached CRD relationships (${cached.data.relationships.length} relationships)`);
+    return cached.data;
+  }
+  
+  const result = await analyzeCRDRelationshipsOnly(options);
+  
+  // Cache the result
+  crdRelationshipCache.set(cacheKey, {
+    data: result,
+    timestamp: Date.now()
+  });
+  
+  // Clean up old cache entries (prevent memory leaks)
+  if (crdRelationshipCache.size > 20) {
+    const oldestKey = crdRelationshipCache.keys().next().value;
+    crdRelationshipCache.delete(oldestKey);
+  }
+  
+  return result;
+};
+
+// New API endpoint: GET /api/dependencies/crd-relationships
+app.get('/api/dependencies/crd-relationships', async (req, res) => {
+  const startTime = Date.now();
+  
+  log('CRD-to-CRD relationships request received');
+  
+  try {
+    // Parse query parameters
+    const apiGroups = req.query.apiGroups ? 
+      req.query.apiGroups.split(',').map(g => g.trim()).filter(Boolean) : [];
+    const crds = req.query.crds ? 
+      req.query.crds.split(',').map(c => c.trim()).filter(Boolean) : [];
+    const maxRelationships = parseInt(req.query.maxRelationships) || 100;
+    const relationshipTypes = req.query.relationshipTypes ? 
+      req.query.relationshipTypes.split(',').map(t => t.trim()).filter(Boolean) : 
+      ['reference', 'composition', 'dependency'];
+    const includeMetadata = req.query.includeMetadata !== 'false';
+    
+    const options = {
+      apiGroups,
+      crds,
+      maxRelationships,
+      relationshipTypes,
+      includeMetadata
+    };
+    
+    // Create cache key from options
+    const cacheKey = JSON.stringify(options);
+    
+    log(`Analyzing CRD relationships with options:`, {
+      apiGroups: apiGroups.length,
+      crds: crds.length,
+      maxRelationships,
+      relationshipTypes
+    });
+    
+    // Get results (cached or fresh)
+    const result = await getCachedCRDRelationships(cacheKey, options);
+    
+    // Add request timing
+    const totalTime = Date.now() - startTime;
+    result.metadata.requestTimeMs = totalTime;
+    
+    log(`✅ CRD relationship request complete: ${result.relationships.length} relationships in ${totalTime}ms`);
+    
+    res.json(result);
+    
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    log(`ERROR: CRD relationship analysis failed after ${totalTime}ms:`, error.message);
+    res.status(500).json({
+      error: error.message,
+      requestTimeMs: totalTime
+    });
   }
 });
 

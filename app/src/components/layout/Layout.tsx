@@ -161,6 +161,18 @@ const navigationItems: NavigationItem[] = [
         path: '/dictionary/crds'
       },
       {
+        id: 'crd-composer',
+        label: 'CRD Composer',
+        icon: <TuneIcon />,
+        path: '/dictionary/composer'
+      },
+      {
+        id: 'crd-canvas-view',
+        label: 'Canvas View',
+        icon: <ViewModuleIcon />,
+        path: '/dictionary/canvas-view'
+      },
+      {
         id: 'crd-analysis',
         label: 'CRD Analysis',
         icon: <AssessmentIcon />,
