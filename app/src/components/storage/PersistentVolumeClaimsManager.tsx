@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -59,6 +59,13 @@ const PersistentVolumeClaimsManager: React.FC = () => {
     storageClass: []
   });
 
+  // Stabilize the filters object to prevent unnecessary re-renders
+  const stableFilters = useMemo(() => ({
+    search: filters.search || '',
+    status: filters.status || [],
+    storageClass: filters.storageClass || []
+  }), [filters.search, filters.status, filters.storageClass]);
+
   // Query for PVCs
   const {
     data: persistentVolumeClaims = [],
@@ -66,9 +73,11 @@ const PersistentVolumeClaimsManager: React.FC = () => {
     error,
     refetch
   } = useQuery({
-    queryKey: ['persistent-volume-claims', selectedNamespace, filters],
-    queryFn: () => storageService.getPersistentVolumeClaims(selectedNamespace, filters),
+    queryKey: ['persistent-volume-claims', selectedNamespace, stableFilters],
+    queryFn: () => storageService.getPersistentVolumeClaims(selectedNamespace === 'all' ? undefined : selectedNamespace, stableFilters),
     refetchInterval: 30000,
+    staleTime: 5000, // Consider data stale after 5 seconds
+    retry: 2, // Retry failed requests twice
   });
 
   // Delete mutation
@@ -144,10 +153,14 @@ const PersistentVolumeClaimsManager: React.FC = () => {
     return `${diffInDays}d`;
   };
 
-  const getUniqueNamespaces = () => {
-    const namespaces = new Set(persistentVolumeClaims.map(pvc => pvc.metadata.namespace));
+  // Memoize unique namespaces to prevent recalculation on every render
+  const uniqueNamespaces = useMemo(() => {
+    if (!persistentVolumeClaims || persistentVolumeClaims.length === 0) {
+      return ['all']; // Always return 'all' even when no PVCs are loaded
+    }
+    const namespaces = new Set(persistentVolumeClaims.map(pvc => pvc.metadata?.namespace).filter(Boolean));
     return ['all', ...Array.from(namespaces).sort()];
-  };
+  }, [persistentVolumeClaims]);
 
   if (isLoading) {
     return (
@@ -268,7 +281,7 @@ const PersistentVolumeClaimsManager: React.FC = () => {
                     color: 'white'
                   }}
                 >
-                  {getUniqueNamespaces().length - 1}
+                  {uniqueNamespaces.length - 1}
                 </Box>
                 <Box>
                   <Typography variant="body2" color="textSecondary">
@@ -315,7 +328,7 @@ const PersistentVolumeClaimsManager: React.FC = () => {
                   setPage(0);
                 }}
               >
-                {getUniqueNamespaces().map((ns) => (
+                {uniqueNamespaces.map((ns) => (
                   <MenuItem key={ns} value={ns}>
                     {ns === 'all' ? 'All Namespaces' : ns}
                   </MenuItem>

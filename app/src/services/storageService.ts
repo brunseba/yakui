@@ -10,7 +10,9 @@ import {
   StorageClassFormData
 } from '../types/storage';
 
-// Mock data for development
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
+// Mock data for development (kept as fallback)
 const mockPersistentVolumes: PersistentVolume[] = [
   {
     metadata: {
@@ -210,40 +212,62 @@ const mockStorageClasses: StorageClass[] = [
 class StorageService {
   // Persistent Volumes
   async getPersistentVolumes(filters?: StorageFilters): Promise<PersistentVolume[]> {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    let filtered = [...mockPersistentVolumes];
-    
-    if (filters?.status?.length) {
-      filtered = filtered.filter(pv => 
-        filters.status!.includes(pv.status.phase.toLowerCase())
-      );
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/persistent-volumes`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch persistent volumes: ${response.statusText}`);
+      }
+      
+      let pvs: PersistentVolume[] = await response.json();
+      
+      // Apply client-side filters if provided
+      if (filters?.status?.length) {
+        pvs = pvs.filter(pv => 
+          filters.status!.includes(pv.status.phase.toLowerCase())
+        );
+      }
+      
+      if (filters?.storageClass?.length) {
+        pvs = pvs.filter(pv => 
+          pv.spec.storageClassName && 
+          filters.storageClass!.includes(pv.spec.storageClassName)
+        );
+      }
+      
+      if (filters?.search) {
+        const search = filters.search.toLowerCase();
+        pvs = pvs.filter(pv => 
+          pv.metadata.name.toLowerCase().includes(search)
+        );
+      }
+      
+      return pvs;
+    } catch (error) {
+      console.error('Error fetching persistent volumes:', error);
+      // Fallback to mock data on error
+      return this.getMockPersistentVolumes(filters);
     }
-    
-    if (filters?.storageClass?.length) {
-      filtered = filtered.filter(pv => 
-        pv.spec.storageClassName && 
-        filters.storageClass!.includes(pv.spec.storageClassName)
-      );
-    }
-    
-    if (filters?.search) {
-      const search = filters.search.toLowerCase();
-      filtered = filtered.filter(pv => 
-        pv.metadata.name.toLowerCase().includes(search)
-      );
-    }
-    
-    return filtered;
   }
 
   async getPersistentVolume(name: string): Promise<PersistentVolume | null> {
-    await new Promise(resolve => setTimeout(resolve, 300));
-    return mockPersistentVolumes.find(pv => pv.metadata.name === name) || null;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/persistent-volumes/${name}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Failed to fetch persistent volume: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching persistent volume ${name}:`, error);
+      return mockPersistentVolumes.find(pv => pv.metadata.name === name) || null;
+    }
   }
 
+  // TODO: Implement create/update/delete operations when backend endpoints are available
   async createPersistentVolume(data: PVFormData): Promise<PersistentVolume> {
+    // Currently using mock implementation - needs backend API endpoint
     await new Promise(resolve => setTimeout(resolve, 800));
     
     const newPV: PersistentVolume = {
@@ -289,36 +313,53 @@ class StorageService {
 
   // Persistent Volume Claims
   async getPersistentVolumeClaims(namespace?: string, filters?: StorageFilters): Promise<PersistentVolumeClaim[]> {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    let filtered = [...mockPersistentVolumeClaims];
-    
-    if (namespace && namespace !== 'all') {
-      filtered = filtered.filter(pvc => pvc.metadata.namespace === namespace);
+    try {
+      const url = `${API_BASE_URL}/api/storage/persistent-volume-claims${namespace ? `?namespace=${namespace}` : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch persistent volume claims: ${response.statusText}`);
+      }
+      
+      let pvcs: PersistentVolumeClaim[] = await response.json();
+      
+      // Apply client-side filters if provided
+      if (filters?.status?.length) {
+        pvcs = pvcs.filter(pvc => 
+          filters.status!.includes(pvc.status.phase.toLowerCase())
+        );
+      }
+      
+      if (filters?.search) {
+        const search = filters.search.toLowerCase();
+        pvcs = pvcs.filter(pvc => 
+          pvc.metadata.name.toLowerCase().includes(search) ||
+          pvc.metadata.namespace.toLowerCase().includes(search)
+        );
+      }
+      
+      return pvcs;
+    } catch (error) {
+      console.error('Error fetching persistent volume claims:', error);
+      return this.getMockPersistentVolumeClaims(namespace, filters);
     }
-    
-    if (filters?.status?.length) {
-      filtered = filtered.filter(pvc => 
-        filters.status!.includes(pvc.status.phase.toLowerCase())
-      );
-    }
-    
-    if (filters?.search) {
-      const search = filters.search.toLowerCase();
-      filtered = filtered.filter(pvc => 
-        pvc.metadata.name.toLowerCase().includes(search) ||
-        pvc.metadata.namespace.toLowerCase().includes(search)
-      );
-    }
-    
-    return filtered;
   }
 
   async getPersistentVolumeClaim(namespace: string, name: string): Promise<PersistentVolumeClaim | null> {
-    await new Promise(resolve => setTimeout(resolve, 300));
-    return mockPersistentVolumeClaims.find(pvc => 
-      pvc.metadata.namespace === namespace && pvc.metadata.name === name
-    ) || null;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/persistent-volume-claims/${namespace}/${name}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Failed to fetch persistent volume claim: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching persistent volume claim ${namespace}/${name}:`, error);
+      return mockPersistentVolumeClaims.find(pvc => 
+        pvc.metadata.namespace === namespace && pvc.metadata.name === name
+      ) || null;
+    }
   }
 
   async createPersistentVolumeClaim(data: PVCFormData): Promise<PersistentVolumeClaim> {
@@ -363,13 +404,32 @@ class StorageService {
 
   // Storage Classes
   async getStorageClasses(): Promise<StorageClass[]> {
-    await new Promise(resolve => setTimeout(resolve, 400));
-    return [...mockStorageClasses];
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/storage-classes`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch storage classes: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching storage classes:', error);
+      return [...mockStorageClasses];
+    }
   }
 
   async getStorageClass(name: string): Promise<StorageClass | null> {
-    await new Promise(resolve => setTimeout(resolve, 300));
-    return mockStorageClasses.find(sc => sc.metadata.name === name) || null;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/storage-classes/${name}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Failed to fetch storage class: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching storage class ${name}:`, error);
+      return mockStorageClasses.find(sc => sc.metadata.name === name) || null;
+    }
   }
 
   async createStorageClass(data: StorageClassFormData): Promise<StorageClass> {
@@ -405,8 +465,71 @@ class StorageService {
 
   // Statistics and Analytics
   async getStorageStatistics(): Promise<StorageStatistics> {
-    await new Promise(resolve => setTimeout(resolve, 600));
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/storage/statistics`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch storage statistics: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching storage statistics:', error);
+      // Fallback to calculating from mock data
+      return this.getMockStorageStatistics();
+    }
+  }
+
+  // Fallback methods for mock data (used when API fails)
+  private getMockPersistentVolumes(filters?: StorageFilters): PersistentVolume[] {
+    let filtered = [...mockPersistentVolumes];
     
+    if (filters?.status?.length) {
+      filtered = filtered.filter(pv => 
+        filters.status!.includes(pv.status.phase.toLowerCase())
+      );
+    }
+    
+    if (filters?.storageClass?.length) {
+      filtered = filtered.filter(pv => 
+        pv.spec.storageClassName && 
+        filters.storageClass!.includes(pv.spec.storageClassName)
+      );
+    }
+    
+    if (filters?.search) {
+      const search = filters.search.toLowerCase();
+      filtered = filtered.filter(pv => 
+        pv.metadata.name.toLowerCase().includes(search)
+      );
+    }
+    
+    return filtered;
+  }
+
+  private getMockPersistentVolumeClaims(namespace?: string, filters?: StorageFilters): PersistentVolumeClaim[] {
+    let filtered = [...mockPersistentVolumeClaims];
+    
+    if (namespace && namespace !== 'all') {
+      filtered = filtered.filter(pvc => pvc.metadata.namespace === namespace);
+    }
+    
+    if (filters?.status?.length) {
+      filtered = filtered.filter(pvc => 
+        filters.status!.includes(pvc.status.phase.toLowerCase())
+      );
+    }
+    
+    if (filters?.search) {
+      const search = filters.search.toLowerCase();
+      filtered = filtered.filter(pvc => 
+        pvc.metadata.name.toLowerCase().includes(search) ||
+        pvc.metadata.namespace.toLowerCase().includes(search)
+      );
+    }
+    
+    return filtered;
+  }
+
+  private getMockStorageStatistics(): StorageStatistics {
     const totalCapacityBytes = mockPersistentVolumes.reduce((total, pv) => {
       const capacity = pv.spec.capacity.storage;
       const sizeInBytes = this.parseStorageSize(capacity);

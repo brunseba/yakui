@@ -256,7 +256,8 @@ class KubeconfigManager {
       appsV1Api: kc.makeApiClient(this.k8s.AppsV1Api),
       rbacV1Api: kc.makeApiClient(this.k8s.RbacAuthorizationV1Api),
       apiExtensionsV1Api: kc.makeApiClient(this.k8s.ApiextensionsV1Api),
-      customObjectsApi: kc.makeApiClient(this.k8s.CustomObjectsApi)
+      customObjectsApi: kc.makeApiClient(this.k8s.CustomObjectsApi),
+      storageV1Api: kc.makeApiClient(this.k8s.StorageV1Api)
     };
 
     // Try to create metrics API (might not be available)

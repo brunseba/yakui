@@ -68,7 +68,7 @@ app.use((req, res, next) => {
 });
 
 // Initialize Kubernetes client and kubeconfig manager
-let kc, coreV1Api, appsV1Api, rbacV1Api, apiExtensionsV1Api, metricsV1Api, customObjectsApi;
+let kc, coreV1Api, appsV1Api, rbacV1Api, apiExtensionsV1Api, metricsV1Api, customObjectsApi, storageV1Api;
 let kubeconfigManager;
 let currentApis = null;
 
@@ -144,6 +144,7 @@ const initializeK8sApis = async (kubeconfigOptions = null) => {
     apiExtensionsV1Api = apis.apiExtensionsV1Api;
     customObjectsApi = apis.customObjectsApi;
     metricsV1Api = apis.metricsV1Api;
+    storageV1Api = apis.storageV1Api;
     
     // Store current APIs
     currentApis = apis;
@@ -5774,6 +5775,492 @@ app.get('/api/dependencies/crd-relationships', async (req, res) => {
       error: error.message,
       requestTimeMs: totalTime
     });
+  }
+});
+
+// === STORAGE API ENDPOINTS ===
+
+// Get all persistent volumes
+app.get('/api/storage/persistent-volumes', async (req, res) => {
+  log('Persistent volumes request received');
+  
+  try {
+    // Ensure APIs are initialized
+    if (!coreV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    const response = await coreV1Api.listPersistentVolume();
+    const pvs = (response.items || []).map(pv => ({
+      metadata: {
+        name: pv.metadata?.name || '',
+        labels: pv.metadata?.labels || {},
+        annotations: pv.metadata?.annotations || {},
+        creationTimestamp: pv.metadata?.creationTimestamp || '',
+        uid: pv.metadata?.uid || ''
+      },
+      spec: {
+        capacity: pv.spec?.capacity || { storage: '0Gi' },
+        accessModes: pv.spec?.accessModes || [],
+        persistentVolumeReclaimPolicy: pv.spec?.persistentVolumeReclaimPolicy || 'Delete',
+        storageClassName: pv.spec?.storageClassName,
+        volumeMode: pv.spec?.volumeMode || 'Filesystem',
+        nodeAffinity: pv.spec?.nodeAffinity,
+        // Volume source types
+        awsElasticBlockStore: pv.spec?.awsElasticBlockStore,
+        azureDisk: pv.spec?.azureDisk,
+        gcePersistentDisk: pv.spec?.gcePersistentDisk,
+        nfs: pv.spec?.nfs,
+        hostPath: pv.spec?.hostPath,
+        local: pv.spec?.local,
+        csi: pv.spec?.csi
+      },
+      status: {
+        phase: pv.status?.phase || 'Pending',
+        message: pv.status?.message,
+        reason: pv.status?.reason
+      }
+    }));
+    
+    log(`Retrieved ${pvs.length} persistent volumes`);
+    res.json(pvs);
+  } catch (error) {
+    log('ERROR: Failed to get persistent volumes:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get specific persistent volume
+app.get('/api/storage/persistent-volumes/:name', async (req, res) => {
+  const pvName = req.params.name;
+  log(`Persistent volume request received for: ${pvName}`);
+  
+  try {
+    // Ensure APIs are initialized
+    if (!coreV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    const response = await coreV1Api.readPersistentVolume({ name: pvName });
+    const pv = {
+      metadata: {
+        name: response.metadata?.name || '',
+        labels: response.metadata?.labels || {},
+        annotations: response.metadata?.annotations || {},
+        creationTimestamp: response.metadata?.creationTimestamp || '',
+        uid: response.metadata?.uid || ''
+      },
+      spec: {
+        capacity: response.spec?.capacity || { storage: '0Gi' },
+        accessModes: response.spec?.accessModes || [],
+        persistentVolumeReclaimPolicy: response.spec?.persistentVolumeReclaimPolicy || 'Delete',
+        storageClassName: response.spec?.storageClassName,
+        volumeMode: response.spec?.volumeMode || 'Filesystem',
+        nodeAffinity: response.spec?.nodeAffinity,
+        awsElasticBlockStore: response.spec?.awsElasticBlockStore,
+        azureDisk: response.spec?.azureDisk,
+        gcePersistentDisk: response.spec?.gcePersistentDisk,
+        nfs: response.spec?.nfs,
+        hostPath: response.spec?.hostPath,
+        local: response.spec?.local,
+        csi: response.spec?.csi
+      },
+      status: {
+        phase: response.status?.phase || 'Pending',
+        message: response.status?.message,
+        reason: response.status?.reason
+      }
+    };
+    
+    log(`Retrieved persistent volume: ${pvName}`);
+    res.json(pv);
+  } catch (error) {
+    log(`ERROR: Failed to get persistent volume ${pvName}:`, error.message);
+    res.status(404).json({ error: error.message });
+  }
+});
+
+// Get persistent volume claims (all namespaces or specific namespace)
+app.get('/api/storage/persistent-volume-claims', async (req, res) => {
+  const namespace = req.query.namespace;
+  log(`Persistent volume claims request received${namespace ? ` for namespace: ${namespace}` : ' (all namespaces)'}`);
+  
+  try {
+    // Ensure APIs are initialized
+    if (!coreV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    let response;
+    if (namespace && namespace !== 'all') {
+      response = await coreV1Api.listNamespacedPersistentVolumeClaim({ namespace });
+    } else {
+      response = await coreV1Api.listPersistentVolumeClaimForAllNamespaces();
+    }
+    
+    const pvcs = (response.items || []).map(pvc => ({
+      metadata: {
+        name: pvc.metadata?.name || '',
+        namespace: pvc.metadata?.namespace || '',
+        labels: pvc.metadata?.labels || {},
+        annotations: pvc.metadata?.annotations || {},
+        creationTimestamp: pvc.metadata?.creationTimestamp || '',
+        uid: pvc.metadata?.uid || ''
+      },
+      spec: {
+        accessModes: pvc.spec?.accessModes || [],
+        resources: {
+          requests: pvc.spec?.resources?.requests || { storage: '0Gi' },
+          limits: pvc.spec?.resources?.limits
+        },
+        storageClassName: pvc.spec?.storageClassName,
+        volumeName: pvc.spec?.volumeName,
+        selector: pvc.spec?.selector,
+        volumeMode: pvc.spec?.volumeMode || 'Filesystem',
+        dataSource: pvc.spec?.dataSource
+      },
+      status: {
+        phase: pvc.status?.phase || 'Pending',
+        accessModes: pvc.status?.accessModes,
+        capacity: pvc.status?.capacity,
+        conditions: pvc.status?.conditions
+      }
+    }));
+    
+    log(`Retrieved ${pvcs.length} persistent volume claims`);
+    res.json(pvcs);
+  } catch (error) {
+    log('ERROR: Failed to get persistent volume claims:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get specific persistent volume claim
+app.get('/api/storage/persistent-volume-claims/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Persistent volume claim request received for: ${namespace}/${name}`);
+  
+  try {
+    // Ensure APIs are initialized
+    if (!coreV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    const response = await coreV1Api.readNamespacedPersistentVolumeClaim({ name, namespace });
+    const pvc = {
+      metadata: {
+        name: response.metadata?.name || '',
+        namespace: response.metadata?.namespace || '',
+        labels: response.metadata?.labels || {},
+        annotations: response.metadata?.annotations || {},
+        creationTimestamp: response.metadata?.creationTimestamp || '',
+        uid: response.metadata?.uid || ''
+      },
+      spec: {
+        accessModes: response.spec?.accessModes || [],
+        resources: {
+          requests: response.spec?.resources?.requests || { storage: '0Gi' },
+          limits: response.spec?.resources?.limits
+        },
+        storageClassName: response.spec?.storageClassName,
+        volumeName: response.spec?.volumeName,
+        selector: response.spec?.selector,
+        volumeMode: response.spec?.volumeMode || 'Filesystem',
+        dataSource: response.spec?.dataSource
+      },
+      status: {
+        phase: response.status?.phase || 'Pending',
+        accessModes: response.status?.accessModes,
+        capacity: response.status?.capacity,
+        conditions: response.status?.conditions
+      }
+    };
+    
+    log(`Retrieved persistent volume claim: ${namespace}/${name}`);
+    res.json(pvc);
+  } catch (error) {
+    log(`ERROR: Failed to get persistent volume claim ${namespace}/${name}:`, error.message);
+    res.status(404).json({ error: error.message });
+  }
+});
+
+// Get all storage classes
+app.get('/api/storage/storage-classes', async (req, res) => {
+  log('Storage classes request received');
+  
+  try {
+    // Ensure APIs are initialized
+    if (!storageV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    const response = await storageV1Api.listStorageClass();
+    const storageClasses = (response.items || []).map(sc => ({
+      metadata: {
+        name: sc.metadata?.name || '',
+        labels: sc.metadata?.labels || {},
+        annotations: sc.metadata?.annotations || {},
+        creationTimestamp: sc.metadata?.creationTimestamp || '',
+        uid: sc.metadata?.uid || ''
+      },
+      provisioner: sc.provisioner || '',
+      parameters: sc.parameters || {},
+      reclaimPolicy: sc.reclaimPolicy,
+      allowVolumeExpansion: sc.allowVolumeExpansion || false,
+      mountOptions: sc.mountOptions,
+      volumeBindingMode: sc.volumeBindingMode || 'Immediate',
+      allowedTopologies: sc.allowedTopologies
+    }));
+    
+    log(`Retrieved ${storageClasses.length} storage classes`);
+    res.json(storageClasses);
+  } catch (error) {
+    log('ERROR: Failed to get storage classes:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get specific storage class
+app.get('/api/storage/storage-classes/:name', async (req, res) => {
+  const scName = req.params.name;
+  log(`Storage class request received for: ${scName}`);
+  
+  try {
+    // Ensure APIs are initialized
+    if (!storageV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    const response = await storageV1Api.readStorageClass({ name: scName });
+    const sc = {
+      metadata: {
+        name: response.metadata?.name || '',
+        labels: response.metadata?.labels || {},
+        annotations: response.metadata?.annotations || {},
+        creationTimestamp: response.metadata?.creationTimestamp || '',
+        uid: response.metadata?.uid || ''
+      },
+      provisioner: response.provisioner || '',
+      parameters: response.parameters || {},
+      reclaimPolicy: response.reclaimPolicy,
+      allowVolumeExpansion: response.allowVolumeExpansion || false,
+      mountOptions: response.mountOptions,
+      volumeBindingMode: response.volumeBindingMode || 'Immediate',
+      allowedTopologies: response.allowedTopologies
+    };
+    
+    log(`Retrieved storage class: ${scName}`);
+    res.json(sc);
+  } catch (error) {
+    log(`ERROR: Failed to get storage class ${scName}:`, error.message);
+    res.status(404).json({ error: error.message });
+  }
+});
+
+// Get storage statistics
+app.get('/api/storage/statistics', async (req, res) => {
+  log('Storage statistics request received');
+  
+  try {
+    // Ensure APIs are initialized
+    if (!coreV1Api || !storageV1Api) {
+      log('APIs not initialized, attempting initialization...');
+      const initialized = await initializeK8sApis();
+      if (!initialized) {
+        return res.status(503).json({ error: 'Kubernetes APIs not available' });
+      }
+    }
+    
+    // Get all storage resources in parallel
+    const [pvsResponse, pvcsResponse, storageClassesResponse] = await Promise.all([
+      coreV1Api.listPersistentVolume(),
+      coreV1Api.listPersistentVolumeClaimForAllNamespaces(),
+      storageV1Api.listStorageClass()
+    ]);
+    
+    const pvs = pvsResponse.items || [];
+    const pvcs = pvcsResponse.items || [];
+    const storageClasses = storageClassesResponse.items || [];
+    
+    // Helper function to parse storage sizes
+    const parseStorageSize = (size) => {
+      const units = {
+        'Ki': 1024,
+        'Mi': 1024 ** 2,
+        'Gi': 1024 ** 3,
+        'Ti': 1024 ** 4,
+        'K': 1000,
+        'M': 1000 ** 2,
+        'G': 1000 ** 3,
+        'T': 1000 ** 4,
+      };
+      
+      const match = size.match(/^(\d+(?:\.\d+)?)(.*)?$/);
+      if (!match) return 0;
+      
+      const [, amount, unit] = match;
+      const multiplier = units[unit] || 1;
+      return parseFloat(amount) * multiplier;
+    };
+    
+    const formatStorageSize = (bytes) => {
+      const units = ['B', 'Ki', 'Mi', 'Gi', 'Ti'];
+      let unitIndex = 0;
+      let size = bytes;
+      
+      while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+      }
+      
+      return `${Math.round(size * 100) / 100}${units[unitIndex]}`;
+    };
+    
+    // Calculate statistics
+    const totalCapacityBytes = pvs.reduce((total, pv) => {
+      const capacity = pv.spec?.capacity?.storage || '0Gi';
+      return total + parseStorageSize(capacity);
+    }, 0);
+    
+    const usedCapacityBytes = pvcs
+      .filter(pvc => pvc.status?.phase === 'Bound')
+      .reduce((total, pvc) => {
+        const capacity = pvc.status?.capacity?.storage || pvc.spec?.resources?.requests?.storage || '0Gi';
+        return total + parseStorageSize(capacity);
+      }, 0);
+    
+    // Count by status
+    const pvsByStatus = pvs.reduce((acc, pv) => {
+      const status = pv.status?.phase?.toLowerCase() || 'unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, { available: 0, bound: 0, released: 0, failed: 0 });
+    
+    const pvcsByStatus = pvcs.reduce((acc, pvc) => {
+      const status = pvc.status?.phase?.toLowerCase() || 'unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, { pending: 0, bound: 0, lost: 0 });
+    
+    // Storage class distribution
+    const storageClassDistribution = storageClasses.map(sc => ({
+      name: sc.metadata?.name || '',
+      count: pvs.filter(pv => pv.spec?.storageClassName === sc.metadata?.name).length,
+      provisioner: sc.provisioner || 'unknown'
+    }));
+    
+    // Namespace usage
+    const namespaceUsage = pvcs.reduce((acc, pvc) => {
+      const ns = pvc.metadata?.namespace || 'default';
+      if (!acc[ns]) {
+        acc[ns] = { usage: 0, count: 0 };
+      }
+      acc[ns].count++;
+      if (pvc.status?.capacity?.storage) {
+        acc[ns].usage += parseStorageSize(pvc.status.capacity.storage);
+      } else if (pvc.spec?.resources?.requests?.storage) {
+        acc[ns].usage += parseStorageSize(pvc.spec.resources.requests.storage);
+      }
+      return acc;
+    }, {});
+    
+    const topNamespacesByUsage = Object.entries(namespaceUsage)
+      .map(([namespace, data]) => ({
+        namespace,
+        usage: formatStorageSize(data.usage),
+        pvcCount: data.count
+      }))
+      .sort((a, b) => parseStorageSize(b.usage) - parseStorageSize(a.usage))
+      .slice(0, 5);
+    
+    const statistics = {
+      totalPVs: pvs.length,
+      totalPVCs: pvcs.length,
+      totalStorageClasses: storageClasses.length,
+      totalCapacity: formatStorageSize(totalCapacityBytes),
+      usedCapacity: formatStorageSize(usedCapacityBytes),
+      availableCapacity: formatStorageSize(totalCapacityBytes - usedCapacityBytes),
+      utilizationPercentage: totalCapacityBytes > 0 ? (usedCapacityBytes / totalCapacityBytes) * 100 : 0,
+      pvsByStatus,
+      pvcsByStatus,
+      storageClassDistribution,
+      topNamespacesByUsage
+    };
+    
+    log('Storage statistics calculated successfully');
+    res.json(statistics);
+  } catch (error) {
+    log('ERROR: Failed to get storage statistics:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete persistent volume
+app.delete('/api/storage/persistent-volumes/:name', async (req, res) => {
+  const pvName = req.params.name;
+  log(`Delete persistent volume request received for: ${pvName}`);
+  
+  try {
+    await coreV1Api.deletePersistentVolume({ name: pvName });
+    log(`Persistent volume deleted: ${pvName}`);
+    res.json({ success: true, message: `Persistent volume ${pvName} deleted successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to delete persistent volume ${pvName}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete persistent volume claim
+app.delete('/api/storage/persistent-volume-claims/:namespace/:name', async (req, res) => {
+  const { namespace, name } = req.params;
+  log(`Delete persistent volume claim request received for: ${namespace}/${name}`);
+  
+  try {
+    await coreV1Api.deleteNamespacedPersistentVolumeClaim({ name, namespace });
+    log(`Persistent volume claim deleted: ${namespace}/${name}`);
+    res.json({ success: true, message: `Persistent volume claim ${namespace}/${name} deleted successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to delete persistent volume claim ${namespace}/${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete storage class
+app.delete('/api/storage/storage-classes/:name', async (req, res) => {
+  const scName = req.params.name;
+  log(`Delete storage class request received for: ${scName}`);
+  
+  try {
+    await storageV1Api.deleteStorageClass({ name: scName });
+    log(`Storage class deleted: ${scName}`);
+    res.json({ success: true, message: `Storage class ${scName} deleted successfully` });
+  } catch (error) {
+    log(`ERROR: Failed to delete storage class ${scName}:`, error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -102,8 +102,8 @@ const StorageClassManager: React.FC = () => {
     }
   };
 
-  const isDefault = (sc: StorageClass) => {
-    return sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true';
+  const isDefault = (sc?: StorageClass) => {
+    return sc?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true';
   };
 
   const formatAge = (timestamp: string) => {
@@ -139,9 +139,11 @@ const StorageClassManager: React.FC = () => {
   }
 
   const filteredSCs = storageClasses.filter((sc) =>
-    !searchQuery || 
-    sc.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    sc.provisioner.toLowerCase().includes(searchQuery.toLowerCase())
+    sc && (
+      !searchQuery || 
+      sc.metadata?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      sc.provisioner?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   const paginatedSCs = filteredSCs.slice(
@@ -189,7 +191,7 @@ const StorageClassManager: React.FC = () => {
                 </Box>
                 <Box>
                   <Typography variant="h6">
-                    {storageClasses.filter(sc => isDefault(sc)).length}
+                    {storageClasses.filter(sc => sc && isDefault(sc)).length}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Default
@@ -216,7 +218,7 @@ const StorageClassManager: React.FC = () => {
                     color: 'white'
                   }}
                 >
-                  {storageClasses.filter(sc => sc.allowVolumeExpansion).length}
+                  {storageClasses.filter(sc => sc && sc.allowVolumeExpansion).length}
                 </Box>
                 <Box>
                   <Typography variant="body2" color="textSecondary">
@@ -244,7 +246,7 @@ const StorageClassManager: React.FC = () => {
                     color: 'white'
                   }}
                 >
-                  {new Set(storageClasses.map(sc => sc.provisioner)).size}
+                  {new Set(storageClasses.filter(sc => sc && sc.provisioner).map(sc => sc.provisioner)).size}
                 </Box>
                 <Box>
                   <Typography variant="body2" color="textSecondary">
@@ -311,7 +313,7 @@ const StorageClassManager: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {paginatedSCs.map((sc) => (
+              {paginatedSCs.filter(sc => sc && sc.metadata).map((sc) => (
                 <React.Fragment key={sc.metadata.uid}>
                   <TableRow 
                     hover 
@@ -513,7 +515,7 @@ const StorageClassManager: React.FC = () => {
             Are you sure you want to delete the storage class "{deleteDialog.sc?.metadata.name}"?
             This action cannot be undone.
           </DialogContentText>
-          {isDefault(deleteDialog.sc!) && (
+          {deleteDialog.sc && isDefault(deleteDialog.sc) && (
             <Alert severity="error" sx={{ mt: 2 }}>
               This is the default storage class. Deleting it may prevent new PVCs from being provisioned automatically.
             </Alert>
@@ -527,7 +529,7 @@ const StorageClassManager: React.FC = () => {
             onClick={handleDeleteConfirm}
             color="error"
             variant="contained"
-            disabled={deleteMutation.isPending || isDefault(deleteDialog.sc!)}
+            disabled={deleteMutation.isPending || (deleteDialog.sc && isDefault(deleteDialog.sc))}
           >
             {deleteMutation.isPending ? <CircularProgress size={20} /> : 'Delete'}
           </Button>
