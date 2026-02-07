@@ -30,7 +30,7 @@ COPY ../../tools ./tools
 RUN npm run build
 
 # Runtime stage
-FROM nginx:alpine
+FROM nginx:1.29.5-alpine3.23
 
 # Install wget for healthcheck
 RUN apk add --no-cache wget
