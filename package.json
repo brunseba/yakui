@@ -33,7 +33,7 @@
     "@tanstack/react-query": "^5.89.0",
     "@types/js-yaml": "^4.0.9",
     "@xyflow/react": "^12.8.5",
-    "axios": "^1.12.2",
+    "axios": "^1.13.5",
     "cors": "^2.8.5",
     "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
